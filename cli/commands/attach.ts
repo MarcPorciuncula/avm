@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { spawnSync } from "node:child_process";
 import { select, isCancel, cancel } from "@clack/prompts";
-import { listAvmVms, normalizeVmName } from "../../lib/vm.ts";
+import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const attachCommand = defineCommand({
   meta: {
@@ -17,12 +17,17 @@ export const attachCommand = defineCommand({
     },
   },
   async run({ args }) {
+    const vms = await listAvmVms();
     let vmName: string;
 
     if (args.id) {
-      vmName = normalizeVmName(args.id);
+      try {
+        vmName = resolveVmByPrefix(args.id, vms).vm.name;
+      } catch (err) {
+        console.error(`Error: ${(err as Error).message}`);
+        process.exit(1);
+      }
     } else {
-      const vms = await listAvmVms();
       if (vms.length === 0) {
         console.log("No agent VMs. Run `avm start` first.");
         return;

@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { listAvmVms, normalizeVmName } from "../../lib/vm.ts";
+import { confirm, isCancel, cancel } from "@clack/prompts";
+import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const cleanCommand = defineCommand({
   meta: {
@@ -14,15 +15,20 @@ export const cleanCommand = defineCommand({
     },
   },
   async run({ args }) {
-    // Positional arguments come through on `_`.
     const rawIds = ((args as { _?: string[] })._ ?? []).filter(
       (s) => s.length > 0,
     );
+    const vms = await listAvmVms();
 
-    let targets: string[];
+    interface Target {
+      name: string;
+      /** True when resolved from a prefix (requires confirmation). */
+      isPartial: boolean;
+    }
+
+    let targets: Target[];
     if (args.all) {
-      const vms = await listAvmVms();
-      targets = vms.map((v) => v.name);
+      targets = vms.map((v) => ({ name: v.name, isPartial: false }));
       if (targets.length === 0) {
         console.log("No agent VMs to clean.");
         return;
@@ -34,20 +40,33 @@ export const cleanCommand = defineCommand({
         );
         process.exit(1);
       }
-      targets = rawIds.map((id) => normalizeVmName(id));
+      targets = [];
+      for (const id of rawIds) {
+        try {
+          const { vm, isPartial } = resolveVmByPrefix(id, vms);
+          targets.push({ name: vm.name, isPartial });
+        } catch (err) {
+          console.error(`Error: ${(err as Error).message}`);
+          process.exit(1);
+        }
+      }
     }
 
-    const existing = new Set((await listAvmVms()).map((v) => v.name));
-
-    for (const name of targets) {
-      if (!existing.has(name)) {
-        console.warn(`!! ${name} does not exist, skipping`);
-        continue;
+    for (const target of targets) {
+      if (target.isPartial) {
+        const ok = await confirm({
+          message: `Delete ${target.name}?`,
+          initialValue: false,
+        });
+        if (isCancel(ok) || !ok) {
+          cancel(`Skipped ${target.name}.`);
+          continue;
+        }
       }
-      console.log(`==> Stopping ${name}...`);
-      await $`orb stop ${name}`.nothrow();
-      console.log(`==> Deleting ${name}...`);
-      await $`orb delete -f ${name}`;
+      console.log(`==> Stopping ${target.name}...`);
+      await $`orb stop ${target.name}`.nothrow();
+      console.log(`==> Deleting ${target.name}...`);
+      await $`orb delete -f ${target.name}`;
     }
   },
 });

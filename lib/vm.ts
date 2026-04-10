@@ -69,3 +69,41 @@ export async function listAvmVms(): Promise<VmInfo[]> {
       status: entry.state,
     }));
 }
+
+export interface PrefixResolution {
+  vm: VmInfo;
+  /** True if the input was a prefix of the matched ID rather than an exact match. */
+  isPartial: boolean;
+}
+
+/**
+ * Resolve a user-provided ID (or prefix) to a single VM.
+ *
+ * Strips any leading `avm-` from the input, then:
+ * - Returns an exact match if one exists (`isPartial: false`).
+ * - Otherwise, returns the unique prefix match (`isPartial: true`).
+ * - Throws if zero or multiple prefix matches exist.
+ */
+export function resolveVmByPrefix(
+  input: string,
+  vms: VmInfo[],
+): PrefixResolution {
+  const needle = input.startsWith("avm-") ? input.slice(4) : input;
+
+  const exact = vms.find((vm) => vm.id === needle);
+  if (exact) {
+    return { vm: exact, isPartial: false };
+  }
+
+  const matches = vms.filter((vm) => vm.id.startsWith(needle));
+  if (matches.length === 0) {
+    throw new Error(`No VM matching "${input}".`);
+  }
+  if (matches.length > 1) {
+    const list = matches.map((vm) => `  - ${vm.id}`).join("\n");
+    throw new Error(
+      `"${input}" is ambiguous. Matches:\n${list}\nUse a longer prefix.`,
+    );
+  }
+  return { vm: matches[0]!, isPartial: true };
+}
