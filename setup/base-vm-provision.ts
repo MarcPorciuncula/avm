@@ -15,22 +15,17 @@
  */
 
 import { $ } from "zx";
+import { BASE_VM_NAME } from "../lib/config.ts";
+import { asAgent as asAgentOn, asRoot as asRootOn } from "../lib/vm.ts";
 
-const BASE_VM_NAME = "alcova-base";
 const VM_USER = "agent";
 
 const args = process.argv.slice(2).filter((a) => a !== "--");
 const reprovision = args.includes("--reprovision");
 
-// --- Helpers to run commands in the VM ---
-
-async function asRoot(cmd: string) {
-  await $({ input: cmd })`ssh root@${BASE_VM_NAME}@orb bash -l`;
-}
-
-async function asAgent(cmd: string) {
-  await $({ input: cmd })`ssh ${BASE_VM_NAME}@orb bash -l`;
-}
+// Local wrappers bind the base VM name so the existing call sites stay concise.
+const asRoot = (cmd: string) => asRootOn(BASE_VM_NAME, cmd);
+const asAgent = (cmd: string) => asAgentOn(BASE_VM_NAME, cmd);
 
 // --- Create or recreate the VM ---
 
