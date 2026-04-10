@@ -1,0 +1,6 @@
+# Local state — mirrors, caches, credentials
+data/
+
+# Dependencies
+node_modules/
+.pnpm-store/

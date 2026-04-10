@@ -18,6 +18,7 @@ export const ALL_REPOS: string[] = Array.from(
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, "..");
 
+export const templatesDir = path.join(REPO_ROOT, "templates");
 export const dataDir = path.join(REPO_ROOT, "data");
 export const mirrorsDir = path.join(dataDir, "mirrors");
 export const credentialsDir = path.join(dataDir, "credentials");

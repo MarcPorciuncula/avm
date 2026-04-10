@@ -1,6 +1,12 @@
 import { defineCommand } from "citty";
 import { $, path } from "zx";
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
   ALL_REPOS,
@@ -13,6 +19,7 @@ import {
   credentialsDir,
   envsDir,
   mirrorsDir,
+  templatesDir,
   vmHostPrefix,
 } from "../../lib/config.ts";
 import {
@@ -74,6 +81,16 @@ export const startCommand = defineCommand({
     // Ensure data/claude.json exists so we can bind-mount it as a file.
     if (!existsSync(claudeJsonFile)) {
       closeSync(openSync(claudeJsonFile, "a"));
+    }
+
+    // Seed the in-VM CLAUDE.md from the template on first use. Never overwrite
+    // an existing file so developers can customize it freely.
+    const vmClaudeMd = path.join(claudeDir, "CLAUDE.md");
+    if (!existsSync(vmClaudeMd)) {
+      const templatePath = path.join(templatesDir, "vm-claude.md");
+      if (existsSync(templatePath)) {
+        copyFileSync(templatePath, vmClaudeMd);
+      }
     }
 
     if (args.clone) {
