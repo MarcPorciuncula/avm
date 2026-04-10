@@ -11,8 +11,19 @@ alias).
 - Node 24 (via nodesource)
 - pnpm (via corepack — use `pnpm`, never `npm` or `yarn`)
 - Python 3
-- buf CLI
+- Go (latest stable, at `/usr/local/go/bin`). `GOPRIVATE=github.com/Alcova-AI/*`
+  is preconfigured so `go mod` fetches Alcova private modules directly via
+  git (which uses the mounted SSH keys).
+- Atlas CLI — database schema migrations (`atlas` on PATH)
+- Task — `taskfile.dev` task runner (`task` on PATH)
+- Buf CLI — protobuf lint/generate (`buf` on PATH)
+- golangci-lint, staticcheck — Go linters
+- Docker + Docker Compose — for running `alcova-backend`'s PostgreSQL +
+  Temporal stack. The `agent` user is in the `docker` group.
 - Standard build tools: `build-essential`, `git`, `curl`, `jq`
+
+A system-wide git URL rewrite maps `https://github.com/Alcova-AI/` →
+`git@github.com:Alcova-AI/` so private Go modules fetch via SSH.
 
 ## Filesystem Layout
 
@@ -68,11 +79,18 @@ you need to edit a project's env, edit the file at `~/envs/<repo>.env`
 
 ## Known Repos
 
-- `operator-ui` — Vite/React frontend, Node 24 + pnpm, depends on
+- `operator-ui` — Vite/React frontend. Node 24 + pnpm. Depends on
   `alcova-backend` for protobuf definitions. Dev server runs on port 3000
   via `pnpm dev`. OrbStack auto-forwards the port to the host.
-- `alcova-backend` — backend repo; currently used as a dependency of
-  `operator-ui` for proto generation.
+- `alcova-backend` — Go backend. Uses Task for orchestration, Atlas for
+  DB migrations, Docker Compose for PostgreSQL + Temporal. Common
+  commands:
+  - `docker-compose up postgres temporal` — start infrastructure
+  - `task server` — run API server
+  - `task worker` — run worker service
+  - `atlas migrate ...` — DB schema ops (see repo README)
+  - Note: running DB migrations requires the `migration_admin` PostgreSQL
+    user to be set up first via `psql -f setup-users.sql`.
 
 If `avm start --clone` was used, these repos are already at `~/work/<repo>`
 with `.env` files in place. Otherwise, clone them yourself as needed.

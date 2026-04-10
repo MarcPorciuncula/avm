@@ -81,10 +81,18 @@ full toolchain pre-installed. Every agent session clones it.
 pnpm run provision
 ```
 
-This takes a minute or two. It installs Node 24, pnpm, Python 3, buf, and
-Claude Code, then stops the VM. The script (`setup/base-vm-provision.ts`)
-is the source of truth for what's in the base VM — if you need a new tool,
-add it there and run `pnpm run provision -- --reprovision` to rebuild.
+This takes several minutes. It installs:
+
+- Node 24, pnpm (via corepack), Python 3
+- Go (latest stable), with `GOPRIVATE=github.com/Alcova-AI/*` preset
+- Buf CLI, Atlas CLI, Task (taskfile.dev), golangci-lint, staticcheck
+- Docker + Docker Compose
+- Claude Code
+- Git URL rewriting so private Go modules fetch via SSH
+
+The script (`setup/base-vm-provision.ts`) is the source of truth for
+what's in the base VM — if you need a new tool, add it there and run
+`pnpm run provision -- --reprovision` to rebuild.
 
 ### 3. Start your first session
 
