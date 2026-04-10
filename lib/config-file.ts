@@ -73,6 +73,7 @@ export function generateAvmLinkScript(config: AvmConfig): string {
     for (const link of repoConfig.symlinks) {
       const src = `$HOME/.avm-files/${link.source}`;
       const parent = path.dirname(link.target);
+      // skip mkdir for bare filenames (parent is ".") or root targets (parent is "/")
       if (parent !== "." && parent !== "/") {
         lines.push(`    mkdir -p "${parent}"`);
       }
@@ -142,6 +143,11 @@ function parseRepos(raw: unknown): Record<string, RepoConfig> {
   }
   const out: Record<string, RepoConfig> = {};
   for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+      throw new Error(
+        `${avmConfigFile}: repos.${name} — repo name must contain only letters, digits, dots, underscores, and hyphens.`,
+      );
+    }
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       throw new Error(
         `${avmConfigFile}: repos.${name} must be a mapping (got ${describe(value)}).`,
@@ -177,7 +183,7 @@ function parseSymlinks(raw: unknown, repoName: string): SymlinkMount[] {
   });
 }
 
-/** Split "source:target" on the first colon. Both sides must be non-empty. */
+/** Split "source:target" on the first colon. Both sides must be non-empty and shell-safe. */
 function splitShortForm(
   entry: string,
   context: string,
@@ -193,6 +199,13 @@ function splitShortForm(
   if (source.length === 0 || target.length === 0) {
     throw new Error(
       `${avmConfigFile}: ${context} ("${entry}") has an empty source or target.`,
+    );
+  }
+  // Reject characters that would break double-quoted bash strings at avm-link runtime.
+  const unsafeChars = /["$`\\]|[\x00-\x1f\x7f]/;
+  if (unsafeChars.test(source) || unsafeChars.test(target)) {
+    throw new Error(
+      `${avmConfigFile}: ${context} ("${entry}") contains unsafe characters. source and target must not contain: " $ \` \\ or control characters.`,
     );
   }
   return { source, target };
