@@ -1,5 +1,10 @@
-import { $ } from "zx";
-import { BASE_VM_NAME } from "./config.ts";
+import { $, path } from "zx";
+import { readFileSync } from "node:fs";
+import {
+  BASE_VM_NAME,
+  REPO_ROOT,
+  vmHostAvmHome,
+} from "./config.ts";
 import { asAgent as asAgentOn, asRoot as asRootOn } from "./vm.ts";
 
 const VM_USER = "agent";
@@ -11,18 +16,23 @@ const asAgent = (cmd: string) => asAgentOn(BASE_VM_NAME, cmd);
  * Provision the base VM from scratch. Caller is responsible for ensuring
  * the VM does not already exist (delete it first if needed).
  *
- * This function is the source of truth for what's in the base VM. If you
- * figure something out interactively, persist it here so the VM is always
- * reproducible.
+ * This function installs ONLY the minimal core — the things every avm
+ * session needs regardless of what toolchain the user layers on top.
+ * Toolchain install (Go, Docker, language runtimes, etc.) happens via
+ * ~/.avm/setup.sh, which is copied into the VM and run as root at the end.
+ *
+ * The core list is the source of truth for what "minimal" means. Don't
+ * grow this function without updating the design spec at
+ * docs/superpowers/specs/2026-04-10-avm-generalization-design.md.
  */
 export async function provisionBaseVm(): Promise<void> {
   console.log(`==> Creating ${BASE_VM_NAME}...`);
   await $`orb create -u ${VM_USER} ubuntu ${BASE_VM_NAME}`;
   await $`sleep 2`;
 
-  // --- System packages ---
+  // --- Core system packages ---
 
-  console.log("==> Installing system packages...");
+  console.log("==> Installing core system packages...");
   await asRoot(`
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
@@ -38,120 +48,24 @@ export async function provisionBaseVm(): Promise<void> {
       openssh-client \
       ca-certificates \
       gnupg \
-      software-properties-common \
       pkg-config \
-      libssl-dev \
       > /dev/null
   `);
 
-  // --- Git configuration ---
+  // --- Git defaults ---
 
-  console.log("==> Configuring git...");
+  console.log("==> Configuring git defaults...");
   await asAgent(`
     git config --global init.defaultBranch main
     git config --global pull.rebase true
   `);
 
-  // --- Node.js (via nodesource) ---
+  // --- Node.js (via nodesource) — required by Claude Code ---
 
   console.log("==> Installing Node.js...");
   await asRoot(`
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1
     apt-get install -y -qq nodejs > /dev/null
-  `);
-
-  // --- pnpm (via corepack) ---
-
-  console.log("==> Enabling corepack...");
-  await asRoot(`
-    corepack enable pnpm
-  `);
-
-  // --- Python ---
-
-  console.log("==> Installing Python...");
-  await asRoot(`
-    apt-get install -y -qq python3 python3-pip python3-venv > /dev/null
-  `);
-
-  // --- buf CLI ---
-
-  console.log("==> Installing buf CLI...");
-  await asRoot(`
-    BUF_VERSION="1.50.0"
-    curl -fsSL "https://github.com/bufbuild/buf/releases/download/v\${BUF_VERSION}/buf-Linux-aarch64" -o /usr/local/bin/buf
-    chmod +x /usr/local/bin/buf
-  `);
-
-  // --- Go toolchain ---
-  // Installs the latest stable Go from go.dev. To pin a specific version,
-  // replace the curl fetch with GO_VERSION="go1.26.0" or similar.
-
-  console.log("==> Installing Go...");
-  await asRoot(`
-    GO_VERSION=$(curl -fsSL https://go.dev/VERSION?m=text | head -n1)
-    echo "    version: \${GO_VERSION}"
-    curl -fsSL "https://go.dev/dl/\${GO_VERSION}.linux-arm64.tar.gz" -o /tmp/go.tar.gz
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf /tmp/go.tar.gz
-    rm /tmp/go.tar.gz
-
-    # Put Go and the agent's Go bin dir on PATH for all login shells.
-    echo 'export PATH=$PATH:/usr/local/go/bin:/home/agent/go/bin' > /etc/profile.d/go.sh
-    chmod +x /etc/profile.d/go.sh
-  `);
-
-  console.log("==> Configuring Go for private Alcova modules...");
-  await asAgent(`
-    export PATH=$PATH:/usr/local/go/bin
-    go env -w GOPRIVATE=github.com/Alcova-AI/*
-    mkdir -p /home/agent/go/bin
-  `);
-
-  // --- Atlas CLI (database migrations) ---
-
-  console.log("==> Installing Atlas CLI...");
-  await asRoot(`
-    curl -sSf https://atlasgo.sh | sh > /dev/null
-  `);
-
-  // --- Task (taskfile.dev) ---
-
-  console.log("==> Installing Task...");
-  await asRoot(`
-    curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin > /dev/null
-  `);
-
-  // --- golangci-lint ---
-
-  console.log("==> Installing golangci-lint...");
-  await asRoot(`
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-      | sh -s -- -b /usr/local/bin > /dev/null
-  `);
-
-  // --- staticcheck (requires Go) ---
-
-  console.log("==> Installing staticcheck...");
-  await asAgent(`
-    export PATH=$PATH:/usr/local/go/bin
-    go install honnef.co/go/tools/cmd/staticcheck@latest
-  `);
-
-  // --- Docker + Compose (for alcova-backend's docker-compose stack) ---
-
-  console.log("==> Installing Docker...");
-  await asRoot(`
-    curl -fsSL https://get.docker.com | sh > /dev/null 2>&1
-    usermod -aG docker agent
-    systemctl enable docker > /dev/null 2>&1 || true
-  `);
-
-  // --- Git URL rewriting for Alcova private repos ---
-
-  console.log("==> Configuring git URL rewriting for Alcova-AI...");
-  await asRoot(`
-    git config --system url."git@github.com:Alcova-AI/".insteadOf "https://github.com/Alcova-AI/"
   `);
 
   // --- Claude Code ---
@@ -163,7 +77,7 @@ export async function provisionBaseVm(): Promise<void> {
 
   // --- Standard directories ---
 
-  console.log("==> Creating directory structure...");
+  console.log("==> Creating agent work directory...");
   await asAgent(`
     mkdir -p ~/work
   `);
@@ -173,6 +87,33 @@ export async function provisionBaseVm(): Promise<void> {
   console.log("==> Configuring shell aliases...");
   await asAgent(`
     echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc
+  `);
+
+  // --- Install helpers library ---
+
+  console.log("==> Installing /opt/avm/helpers.sh...");
+  const helpersPath = path.join(REPO_ROOT, "templates", "vm-helpers.sh");
+  const helpersContents = readFileSync(helpersPath, "utf-8");
+  await $({
+    input: helpersContents,
+  })`ssh root@${BASE_VM_NAME}@orb "mkdir -p /opt/avm && cat > /opt/avm/helpers.sh && chmod 644 /opt/avm/helpers.sh"`;
+
+  // --- Run the user's setup.sh ---
+  //
+  // The base VM's /mnt/mac mount still exposes the host filesystem during
+  // provisioning — the lockdown that masks /mnt/mac only applies to
+  // session VMs, not the template. We copy the script to /tmp first so
+  // the post-lockdown VMs never need to re-read it from /mnt/mac.
+  //
+  // If setup.sh exits non-zero, the whole provision fails loudly and the
+  // partially-provisioned VM is left for the next `avm provision` to
+  // delete and rebuild from scratch.
+
+  console.log("==> Running user setup.sh...");
+  await asRoot(`
+    cp ${vmHostAvmHome}/setup.sh /tmp/avm-user-setup.sh
+    bash /tmp/avm-user-setup.sh
+    rm /tmp/avm-user-setup.sh
   `);
 
   // --- Stop the VM (it's now a template) ---
