@@ -1,0 +1,18 @@
+{
+  "name": "alcova-vm",
+  "version": "1.0.0",
+  "description": "A harness for running sandboxed Claude Code agents in OrbStack Linux VMs with `--dangerously-skip-permissions`.",
+  "scripts": {
+    "provision": "tsx setup/base-vm-provision.ts",
+    "session": "tsx setup/session-setup.ts"
+  },
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.0",
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^25.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "zx": "^8.8.5"
+  }
+}
