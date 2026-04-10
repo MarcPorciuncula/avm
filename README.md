@@ -113,13 +113,16 @@ install && pnpm dev`.
 ## Commands
 
 ```
-avm list                  # List all avm-* VMs
+avm list                  # List all session VMs
 avm start [name]          # Create and start a new agent VM
   --clone                 # Also clone all known repos + symlink .env files
   --attach                # Drop straight into the VM via SSH
 avm attach [id]           # SSH into a VM (interactive picker if no id)
+avm stop <id...>          # Stop one or more VMs without destroying them
+  --all                   # Stop every running session VM
 avm clean <id...>         # Stop and delete one or more VMs
-  --all                   # Clean every avm-* VM
+  --all                   # Clean every session VM
+avm provision             # Create or rebuild the avm-base template
 ```
 
 IDs are the 5-char suffix after `avm-`. You can pass a prefix — if it

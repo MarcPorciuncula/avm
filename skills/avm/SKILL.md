@@ -28,6 +28,8 @@ avm start [name]          # Create a new VM (random 5-char id if no name)
   --clone                 # Also reference-clone every known repo + symlink .env
   --attach                # Drop straight into the VM via SSH when setup finishes
 avm attach [id]           # SSH into a VM; interactive picker if no id given
+avm stop <id...>          # Stop one or more VMs without destroying them
+  --all                   # Stop every running session VM
 avm clean <id...>         # Stop and delete one or more session VMs
   --all                   # Clean every session VM
 avm provision             # Create or rebuild the avm-base template
