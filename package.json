@@ -6,7 +6,6 @@
     "avm": "./bin/avm.mjs"
   },
   "scripts": {
-    "provision": "tsx setup/base-vm-provision.ts",
     "avm": "tsx cli/avm.ts"
   },
   "license": "ISC",

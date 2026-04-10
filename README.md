@@ -74,14 +74,19 @@ with an empty `data/` that fills up as you use it.
 
 ### 2. Provision the base VM
 
-The base VM (`alcova-base`) is a template — a stopped Ubuntu VM with the
+The base VM (`avm-base`) is a template — a stopped Ubuntu VM with the
 full toolchain pre-installed. Every agent session clones it.
 
 ```bash
-pnpm run provision
+avm provision
 ```
 
-This takes several minutes. It installs:
+This takes several minutes. If `avm-base` already exists and is stopped,
+it's deleted and rebuilt from scratch. If it's running (e.g., you were
+experimenting in it interactively), the command errors out — stop it
+first with `orb stop avm-base`.
+
+It installs:
 
 - Node 24, pnpm (via corepack), Python 3
 - Go (latest stable), with `GOPRIVATE=github.com/Alcova-AI/*` preset
@@ -90,9 +95,9 @@ This takes several minutes. It installs:
 - Claude Code
 - Git URL rewriting so private Go modules fetch via SSH
 
-The script (`setup/base-vm-provision.ts`) is the source of truth for
-what's in the base VM — if you need a new tool, add it there and run
-`pnpm run provision -- --reprovision` to rebuild.
+`lib/base-vm.ts` is the source of truth for what's in the base VM — if
+you need a new tool, add it there and run `avm provision` again to
+rebuild.
 
 ### 3. Start your first session
 
@@ -198,14 +203,15 @@ Then drop `data/envs/my-new-service.env` if it needs one. The next
 
 ### Adding a toolchain package
 
-Edit `setup/base-vm-provision.ts` and add the install command. Then:
+Edit `lib/base-vm.ts` and add the install command. Then:
 
 ```bash
-pnpm run provision -- --reprovision
+avm provision
 ```
 
-This wipes and rebuilds the base VM. Any running agent VMs are unaffected
-(they're already clones).
+This wipes and rebuilds `avm-base`. Any running agent VMs are unaffected
+(they're already OrbStack copy-on-write clones and don't share state with
+the template after creation).
 
 ### Customizing in-VM behavior
 

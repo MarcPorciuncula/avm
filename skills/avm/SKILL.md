@@ -23,14 +23,18 @@ Invoke this skill when the user says things like:
 ## Commands
 
 ```
-avm list                  # Show all avm-* VMs and their status
+avm list                  # Show all session VMs and their status
 avm start [name]          # Create a new VM (random 5-char id if no name)
   --clone                 # Also reference-clone every known repo + symlink .env
   --attach                # Drop straight into the VM via SSH when setup finishes
 avm attach [id]           # SSH into a VM; interactive picker if no id given
-avm clean <id...>         # Stop and delete one or more VMs
-  --all                   # Clean every avm-* VM
+avm clean <id...>         # Stop and delete one or more session VMs
+  --all                   # Clean every session VM
+avm provision             # Create or rebuild the avm-base template
 ```
+
+The base VM `avm-base` is infrastructure — it's excluded from `avm list`
+and never touched by `avm clean`. Use `avm provision` to (re)build it.
 
 IDs are the 5-char suffix after `avm-` (e.g., `k7xf2`). Prefixes work as
 long as they're unambiguous. `avm clean` with a prefix prompts for

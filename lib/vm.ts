@@ -1,5 +1,6 @@
 import { $ } from "zx";
 import { randomBytes } from "node:crypto";
+import { BASE_VM_NAME } from "./config.ts";
 
 export interface VmInfo {
   /** Short ID — the suffix after `avm-`. */
@@ -57,12 +58,18 @@ export function normalizeVmName(name: string): string {
   return `avm-${stripped}`;
 }
 
-/** List VMs whose names start with `avm-`. Uses `orb list -f json`. */
+/**
+ * List session VMs — names start with `avm-` and excludes the base VM
+ * template (`avm-base`). Uses `orb list -f json`.
+ */
 export async function listAvmVms(): Promise<VmInfo[]> {
   const result = await $`orb list -f json`.quiet();
   const entries = JSON.parse(result.stdout) as OrbListEntry[];
   return entries
-    .filter((entry) => entry.name.startsWith("avm-"))
+    .filter(
+      (entry) =>
+        entry.name.startsWith("avm-") && entry.name !== BASE_VM_NAME,
+    )
     .map((entry) => ({
       id: entry.name.slice(4),
       name: entry.name,

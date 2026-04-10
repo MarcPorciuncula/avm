@@ -54,7 +54,7 @@ cli/commands/*.ts           # one file per subcommand
 lib/config.ts               # constants, paths, REPO_DEPS
 lib/vm.ts                   # SSH helpers, orb wrappers, ID utilities
 lib/mirrors.ts              # bare mirror management
-setup/base-vm-provision.ts  # source of truth for the base VM image
+lib/base-vm.ts              # source of truth for what's in the base VM template
 templates/vm-claude.md      # seed for data/claude/CLAUDE.md
 skills/avm/SKILL.md         # host-side Claude Code skill (symlinked in by users)
 data/                       # host-side state, gitignored
@@ -74,8 +74,9 @@ cross-command utilities — keep commands independent.
 - **Changing mounts or VM setup:** edit `cli/commands/start.ts`. Any new
   mount should also be documented in the README's "Host Data Layout"
   section and the in-VM template at `templates/vm-claude.md`.
-- **Changing the base VM image:** edit `setup/base-vm-provision.ts`, then
-  rebuild with `pnpm run provision -- --reprovision`. Don't try to mutate
-  a running base VM — the script is the source of truth.
+- **Changing the base VM image:** edit `lib/base-vm.ts`, then rebuild
+  with `avm provision`. Don't try to mutate a running base VM — the
+  script is the source of truth. The base VM must be stopped before
+  `avm provision` will rebuild it.
 - **Adding a repo to `REPO_DEPS`:** edit `lib/config.ts`. Any new primary
   repo gets its `.env` file at `data/envs/<repo>.env` on the host.

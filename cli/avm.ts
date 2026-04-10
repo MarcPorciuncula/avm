@@ -5,6 +5,7 @@ import { listCommand } from "./commands/list.ts";
 import { startCommand } from "./commands/start.ts";
 import { cleanCommand } from "./commands/clean.ts";
 import { attachCommand } from "./commands/attach.ts";
+import { provisionCommand } from "./commands/provision.ts";
 
 const main = defineCommand({
   meta: {
@@ -16,6 +17,7 @@ const main = defineCommand({
     start: startCommand,
     attach: attachCommand,
     clean: cleanCommand,
+    provision: provisionCommand,
   },
 });
 

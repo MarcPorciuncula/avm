@@ -1,7 +1,9 @@
 import { path } from "zx";
 import { fileURLToPath } from "node:url";
 
-export const BASE_VM_NAME = "alcova-base";
+export const BASE_VM_NAME = "avm-base";
+/** Legacy base VM name, removed during provisioning if encountered. */
+export const LEGACY_BASE_VM_NAME = "alcova-base";
 export const GITHUB_ORG = "Alcova-AI";
 
 // Repos to clone into the VM. Key is the primary repo; value is its dependency repos.
