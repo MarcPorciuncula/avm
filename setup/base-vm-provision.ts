@@ -129,6 +129,13 @@ await asAgent(`
   mkdir -p ~/work
 `);
 
+// --- Shell aliases ---
+
+console.log("==> Configuring shell aliases...");
+await asAgent(`
+  echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc
+`);
+
 // --- Stop the VM (it's now a template) ---
 
 console.log(`==> Stopping ${BASE_VM_NAME} (ready as template)...`);
