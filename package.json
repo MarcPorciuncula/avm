@@ -11,6 +11,7 @@
   "type": "module",
   "dependencies": {
     "@types/node": "^25.5.2",
+    "citty": "^0.2.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "zx": "^8.8.5"
