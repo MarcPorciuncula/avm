@@ -21,6 +21,7 @@ export const REPO_ROOT = path.resolve(__dirname, "..");
 export const dataDir = path.join(REPO_ROOT, "data");
 export const mirrorsDir = path.join(dataDir, "mirrors");
 export const credentialsDir = path.join(dataDir, "credentials");
+export const envsDir = path.join(dataDir, "envs");
 export const cacheDir = path.join(dataDir, "cache");
 export const claudeDir = path.join(dataDir, "claude");
 

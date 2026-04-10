@@ -10,6 +10,7 @@ import {
   cacheDir,
   claudeDir,
   credentialsDir,
+  envsDir,
   mirrorsDir,
   vmHostPrefix,
 } from "../../lib/config.ts";
@@ -38,7 +39,7 @@ export const startCommand = defineCommand({
     clone: {
       type: "boolean",
       description:
-        "Reference-clone all known repos into ~/work/<repo> and copy .env files.",
+        "Reference-clone all known repos into ~/work/<repo> and symlink .env files from ~/envs.",
     },
     attach: {
       type: "boolean",
@@ -63,10 +64,8 @@ export const startCommand = defineCommand({
       path.join(cacheDir, "shared", "pnpm-store"),
       claudeDir,
       mirrorsDir,
+      envsDir,
     ];
-    for (const primaryRepo of Object.keys(REPO_DEPS)) {
-      requiredDirs.push(path.join(credentialsDir, primaryRepo));
-    }
     for (const dir of requiredDirs) {
       mkdirSync(dir, { recursive: true });
     }
@@ -86,14 +85,15 @@ export const startCommand = defineCommand({
     await asRoot(
       vmName,
       `
-      mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/.local/share/pnpm/store /home/agent/mirrors
+      mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/.local/share/pnpm/store /home/agent/mirrors /home/agent/envs
 
       mount --bind ${vmHostPrefix}/data/credentials/ssh /home/agent/.ssh
       mount --bind ${vmHostPrefix}/data/claude /home/agent/.claude
       mount --bind ${vmHostPrefix}/data/cache/shared/pnpm-store /home/agent/.local/share/pnpm/store
       mount --bind ${vmHostPrefix}/data/mirrors /home/agent/mirrors
+      mount --bind ${vmHostPrefix}/data/envs /home/agent/envs
 
-      chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/.local /home/agent/mirrors
+      chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/.local /home/agent/mirrors /home/agent/envs
     `,
     );
 
@@ -121,14 +121,13 @@ export const startCommand = defineCommand({
       }
 
       for (const primaryRepo of Object.keys(REPO_DEPS)) {
-        const envFile = path.join(credentialsDir, primaryRepo, ".env");
+        const envFile = path.join(envsDir, `${primaryRepo}.env`);
         if (existsSync(envFile)) {
-          console.log(`==> Copying .env for ${primaryRepo}...`);
-          await asRoot(
+          console.log(`==> Symlinking .env for ${primaryRepo}...`);
+          await asAgent(
             vmName,
             `
-            cp ${vmHostPrefix}/data/credentials/${primaryRepo}/.env /home/agent/work/${primaryRepo}/.env
-            chown agent:agent /home/agent/work/${primaryRepo}/.env
+            ln -sf /home/agent/envs/${primaryRepo}.env /home/agent/work/${primaryRepo}/.env
           `,
           );
         }
