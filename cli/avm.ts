@@ -1,5 +1,3 @@
-#!/usr/bin/env pnpm exec tsx
-
 import { defineCommand, runMain } from "citty";
 import { listCommand } from "./commands/list.ts";
 import { startCommand } from "./commands/start.ts";

@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "A harness for running sandboxed Claude Code agents in OrbStack Linux VMs with `--dangerously-skip-permissions`.",
   "bin": {
-    "avm": "./bin/avm.mjs"
+    "avm": "./dist/avm.mjs"
   },
   "scripts": {
-    "avm": "tsx cli/avm.ts"
+    "build": "node build.mjs",
+    "dev": "tsx cli/avm.ts",
+    "prepare": "node build.mjs"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.0",
@@ -18,5 +20,8 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "zx": "^8.8.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
   }
 }

@@ -33,7 +33,13 @@ pnpm install
 pnpm link --global
 ```
 
-`avm` is now on your PATH. Run `avm --help` to confirm.
+`pnpm install` runs a `prepare` script that bundles the CLI to
+`dist/avm.mjs` via esbuild. `pnpm link --global` then symlinks `avm` into
+your shell PATH. Run `avm --help` to confirm.
+
+After pulling new changes, run `pnpm install` again (or `pnpm run build`)
+to rebuild `dist/avm.mjs`. For iterative development, use
+`pnpm run dev <command>` to run the CLI via `tsx` without a rebuild.
 
 ### (Optional) Install the Claude Code skill
 
