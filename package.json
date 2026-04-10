@@ -4,7 +4,7 @@
   "description": "A harness for running sandboxed Claude Code agents in OrbStack Linux VMs with `--dangerously-skip-permissions`.",
   "scripts": {
     "provision": "tsx setup/base-vm-provision.ts",
-    "session": "tsx setup/session-setup.ts"
+    "avm": "tsx cli/avm.ts"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.0",
