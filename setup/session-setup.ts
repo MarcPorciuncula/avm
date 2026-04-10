@@ -46,8 +46,8 @@ const vmHostPrefix = `/mnt/mac${REPO_ROOT}`;
 for (const dir of [
   path.join(credentialsDir, "ssh"),
   path.join(credentialsDir, "git"),
-  path.join(credentialsDir, "claude"),
   path.join(credentialsDir, repoName),
+  path.join(dataDir, "claude"),
   path.join(cacheDir, "shared", "pnpm-store"),
   mirrorsDir,
 ]) {
@@ -108,7 +108,7 @@ await asRoot(`
   mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/.local/share/pnpm/store
 
   mount --bind ${vmHostPrefix}/data/credentials/ssh /home/agent/.ssh
-  mount --bind ${vmHostPrefix}/data/credentials/claude /home/agent/.claude
+  mount --bind ${vmHostPrefix}/data/claude /home/agent/.claude
   mount --bind ${vmHostPrefix}/data/cache/shared/pnpm-store /home/agent/.local/share/pnpm/store
 
   chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/.local
