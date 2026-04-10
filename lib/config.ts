@@ -24,6 +24,8 @@ export const credentialsDir = path.join(dataDir, "credentials");
 export const envsDir = path.join(dataDir, "envs");
 export const cacheDir = path.join(dataDir, "cache");
 export const claudeDir = path.join(dataDir, "claude");
+/** Sibling file to `claudeDir` — Claude Code's `~/.claude.json` settings file. */
+export const claudeJsonFile = path.join(dataDir, "claude.json");
 
 /** VM-side absolute path that reaches the alcova-vm repo on the host (before lockdown). */
 export const vmHostPrefix = `/mnt/mac${REPO_ROOT}`;

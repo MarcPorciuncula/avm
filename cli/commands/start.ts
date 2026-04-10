@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { $, path } from "zx";
-import { existsSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
   ALL_REPOS,
@@ -9,6 +9,7 @@ import {
   REPO_DEPS,
   cacheDir,
   claudeDir,
+  claudeJsonFile,
   credentialsDir,
   envsDir,
   mirrorsDir,
@@ -70,6 +71,11 @@ export const startCommand = defineCommand({
       mkdirSync(dir, { recursive: true });
     }
 
+    // Ensure data/claude.json exists so we can bind-mount it as a file.
+    if (!existsSync(claudeJsonFile)) {
+      closeSync(openSync(claudeJsonFile, "a"));
+    }
+
     if (args.clone) {
       console.log("==> Ensuring mirrors are fresh...");
       await updateMirrors(ALL_REPOS);
@@ -86,13 +92,16 @@ export const startCommand = defineCommand({
       vmName,
       `
       mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/.local/share/pnpm/store /home/agent/mirrors /home/agent/envs
+      touch /home/agent/.claude.json
 
       mount --bind ${vmHostPrefix}/data/credentials/ssh /home/agent/.ssh
       mount --bind ${vmHostPrefix}/data/claude /home/agent/.claude
+      mount --bind ${vmHostPrefix}/data/claude.json /home/agent/.claude.json
       mount --bind ${vmHostPrefix}/data/cache/shared/pnpm-store /home/agent/.local/share/pnpm/store
       mount --bind ${vmHostPrefix}/data/mirrors /home/agent/mirrors
       mount --bind ${vmHostPrefix}/data/envs /home/agent/envs
 
+      chown agent:agent /home/agent/.claude.json
       chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/.local /home/agent/mirrors /home/agent/envs
     `,
     );
