@@ -13,6 +13,7 @@
   "packageManager": "pnpm@10.28.0",
   "type": "module",
   "dependencies": {
+    "@clack/prompts": "^1.2.0",
     "@types/node": "^25.5.2",
     "citty": "^0.2.2",
     "tsx": "^4.21.0",
