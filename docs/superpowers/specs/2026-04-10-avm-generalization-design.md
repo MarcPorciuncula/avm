@@ -40,32 +40,34 @@ Everything else — the CLI command surface, SSH/orb orchestration, prefix resol
 ~/.avm/
 ├── config.yaml           # user-edited: volumes + per-repo config
 ├── setup.sh              # user-written: base VM setup script
-├── system/               # CLI-managed; users don't edit directly
+├── system/               # fixed layout; user populates, avm mounts
 │   ├── credentials/
-│   │   ├── ssh/          # GitHub SSH keys + ssh config
+│   │   ├── ssh/          # GitHub SSH keys + ssh config → ~/.ssh in VM
 │   │   └── git/
-│   │       └── .gitconfig
-│   ├── claude/           # Claude Code home (~/.claude in VM)
-│   ├── claude.json       # Claude Code settings
-│   └── mirrors/          # bare git mirrors for --clone
-├── volumes/              # bind-mount sources (one subdir per declared volume)
+│   │       └── .gitconfig # git identity → ~/.gitconfig in VM (copied)
+│   ├── claude/           # Claude Code home → ~/.claude in VM
+│   └── claude.json       # Claude Code settings → ~/.claude.json in VM
+├── mirrors/              # optional bare git mirrors → ~/mirrors in VM
+├── volumes/              # bind-mount sources (declared in config.yaml)
 │   ├── pnpm-store/
 │   ├── go-build/
 │   └── cargo/
-└── files/                # symlink sources (and future copy sources)
+└── files/                # symlink sources (declared in config.yaml)
     ├── envs/
     │   └── operator-ui.env
     └── configs/
         └── alcova-backend/local.yml
 ```
 
-**Separation rationale:**
+**Three kinds of subdirectory in `~/.avm/`:**
 
-- `system/` is load-bearing for the CLI itself (SSH is how credentials reach the VM, `mirrors/` is how `--clone` works). The CLI owns these paths. Users populate them (`ssh/id_ed25519`, `.gitconfig`, initial `git clone --mirror` to populate a mirror) but don't move or rename them.
-- `volumes/` holds content that becomes a bind mount inside the VM. Each subdirectory is the source for exactly one declared volume.
-- `files/` holds content that becomes a symlink inside a cloned repo. The entire `files/` directory is mounted once into the VM at a fixed path so symlinks have a real target to point at.
+- **`system/` — fixed layout, authentication state.** Holds the credentials and persistent Claude state that every session VM needs to talk to GitHub and run Claude Code. The paths inside are avm-defined: `credentials/ssh/` means "the SSH dir", `credentials/git/.gitconfig` means "the git identity", `claude/` means "Claude Code home", `claude.json` means "Claude Code settings". The user populates these with their own files; the CLI doesn't generate any of them. On a fresh machine the user can do this manually, or have the host-side Claude (via the `avm` skill) walk them through it — generate an SSH key, set up a git identity, drop `.gitconfig` in place. The CLI's job is to know these paths and bind-mount them into every session VM.
+- **`mirrors/` — fixed bind location, optional content.** Bare git mirrors the agent can reference-clone from inside the VM for fast clones of large repos. The directory is always bind-mounted to `~/mirrors/` in the VM (known location — the in-VM CLAUDE.md tells the agent to use it). Populating it is optional; an empty `mirrors/` just means the agent does regular clones without the `--reference` speedup. Users populate with `git clone --mirror git@github.com:org/repo.git ~/.avm/mirrors/repo.git` or similar.
+- **`volumes/` and `files/` — user-chosen layouts.** These are the sources referenced by `config.yaml`. Users organize them however makes sense for their stack. The CLI reads `config.yaml`, resolves sources relative to these directories, and applies the declared mounts/symlinks. No fixed structure, no reserved subdirectory names.
 
-The split means that inside the VM, user-declared volumes resolve to proper bind mounts (tools see normal directories), while symlink sources all resolve through a single mount of `files/`. No double-mounting.
+In effect, `system/` is "the configuration file for the parts of avm you can't express in `config.yaml`." A fresh clone of `avm` + `pnpm link --global` starts with an empty `~/.avm/system/` and `~/.avm/mirrors/`; the user fills them in during First-Time Setup (or is guided through it by the skill).
+
+**Why `files/` exists as a separate mount:** `volumes[]` entries become proper bind mounts directly from their source on the host to their target in the VM, so they don't need an intermediate mount. `repos.*.symlinks[]` entries become `ln -s` calls inside the cloned repo working directory — for the symlink target to resolve to anything real, the source file must be visible in the VM. The `files/` directory is bind-mounted once as a whole to `~/.avm-files/` inside the VM, and symlinks point into it. Keeping symlink sources in their own top-level directory also prevents users from accidentally declaring a symlink that points into `volumes/` or `credentials/`.
 
 ## Config File
 
@@ -83,8 +85,8 @@ volumes:
   - go-mod:~/go/pkg/mod
   - cargo:~/.cargo
 
-# Per-repo config. Applied during `avm create --clone` / `avm start --clone`
-# and via `avm-link` inside the VM when cloning on demand.
+# Per-repo config. Applied by `avm-link` inside the VM after the agent
+# clones a repo from a mirror.
 repos:
   operator-ui:
     symlinks:
@@ -102,10 +104,10 @@ repos:
 - `volumes[].target` — relative to `/home/agent/` unless absolute. Supports `~/` expansion.
 - `repos.<name>.symlinks[].source` — relative to `~/.avm/files/`.
 - `repos.<name>.symlinks[].target` — relative to the current working directory when `avm-link` runs (which is the repo's working copy for the standard workflow, e.g. `~/work/<name>/`).
-- `<name>` in `repos:` is the lookup key used by `avm-link`. For `--clone`, `<name>` must match a mirror basename at `~/.avm/system/mirrors/<name>.git`. For on-demand clones, `<name>` is whatever the user passes as the first arg to `avm-link` (defaults to `$(basename "$PWD")`).
+- `<name>` in `repos:` is the lookup key used by `avm-link`. It's whatever the user (or the agent) passes as the first arg to `avm-link`, defaulting to `$(basename "$PWD")`. By convention it matches a mirror basename at `~/.avm/mirrors/<name>.git`, but there's no hard requirement — `avm-link` is just doing a case-statement lookup on the name.
 - File vs. directory is auto-detected by stat'ing the source.
 - A missing source is a warning, not an error. This lets a single `config.yaml` work across VMs where some caches haven't been populated yet, and across repos where not every repo has every config file.
-- A `repos:` entry without a corresponding mirror is valid — it just means `--clone` won't create that repo, but `avm-link <name>` still works for manually-cloned copies.
+- A `repos:` entry without a corresponding mirror is still useful — the agent can clone from anywhere (not just a mirror) and then run `avm-link` to apply the configured symlinks.
 
 ### Validation
 
@@ -171,8 +173,10 @@ The helpers are intentionally minimal. Users can add more in their own script; t
 
 `avm start` today both creates new VMs and errors on any existing name. This spec splits that into two commands:
 
-- **`avm create [name] [--clone] [--attach]`** — creates a fresh session VM. Errors if a VM with the given name already exists. This is the old `avm start` create path, renamed.
-- **`avm start <id> [--clone] [--attach]`** — resumes a stopped session VM. Errors if the VM is already running or doesn't exist.
+- **`avm create [name] [--attach]`** — creates a fresh session VM. Errors if a VM with the given name already exists. This is the old `avm start` create path, renamed.
+- **`avm start <id> [--attach]`** — resumes a stopped session VM. Errors if the VM is already running or doesn't exist.
+
+Neither command takes a `--clone` flag. Cloning repos is the agent's job inside the VM, documented in `templates/vm-claude.md`. The CLI's role is to make the mirrors, symlink sources, and `avm-link` helper available; the agent does the actual `git clone` and post-clone `avm-link` invocation. This removes a whole code path from the CLI and deletes the duplication where the create flow and the agent's workflow both knew how to clone a repo.
 
 ### `avm create [name]`
 
@@ -185,9 +189,8 @@ The helpers are intentionally minimal. Users can add more in their own script; t
    1. Read `~/.avm/config.yaml` (tolerate absence: treat as empty `volumes` and empty `repos`).
    2. `orb clone avm-base <name>`, `orb start <name>`, wait for SSH.
    3. Call `applySessionMounts(name, config)` (see below).
-   4. If `--clone`, call `applyClone(name, { skipExisting: false })` (see below).
-   5. Call `applyLockdown(name)`.
-   6. Print the SSH command. If `--attach`, exec into SSH.
+   4. Call `applyLockdown(name)`.
+   5. Print the SSH command. If `--attach`, exec into SSH.
 
 ### `avm start <id>`
 
@@ -200,22 +203,23 @@ The helpers are intentionally minimal. Users can add more in their own script; t
 4. **Resume flow** (orchestration):
    1. Read `~/.avm/config.yaml` (tolerate absence).
    2. `orb start <name>`, wait for SSH. **No** `orb clone` — the VM already exists.
-   3. Call `applySessionMounts(name, config)`. Bind mounts don't persist across `orb stop`, so every resume has to redo them from scratch.
-   4. If `--clone`, call `applyClone(name, { skipExisting: true })`. Existing working copies are left alone; only missing repos get cloned. `avm-link` is re-run for every repo either way, so updated symlinks in config take effect.
-   5. Call `applyLockdown(name)`.
-   6. Print the SSH command. If `--attach`, exec into SSH.
+   3. Call `applySessionMounts(name, config)`. Bind mounts don't persist across `orb stop`, so every resume has to redo them from scratch. This also regenerates `/usr/local/bin/avm-link` so config.yaml changes take effect on resume.
+   4. Call `applyLockdown(name)`.
+   5. Print the SSH command. If `--attach`, exec into SSH.
+
+Existing working copies in `~/work/` persist across stop/start — they're part of the VM's own disk, not a bind mount — so the agent's clones from the previous session are still there after resume.
 
 ### Shared Orchestration Helpers
 
-Extract the mount/clone/lockdown logic into reusable functions so the create and resume flows share one code path. Home: either `cli/commands/start.ts` next to the commands, or a new `lib/session.ts` — pick whichever keeps the command files cleanest at implementation time. Names below are illustrative.
+Extract the mount and lockdown logic into reusable functions so the create and resume flows share one code path. Home: either `cli/commands/start.ts` next to the commands, or a new `lib/session.ts` — pick whichever keeps the command files cleanest at implementation time. Names below are illustrative.
 
 **`applySessionMounts(vmName, config)`** — idempotent setup of all mounts that must exist on every session start:
 
-1. **System mounts** (hardcoded, always on):
+1. **Fixed mounts** (always on, not configurable):
    - `~/.avm/system/credentials/ssh/` → `/home/agent/.ssh`
    - `~/.avm/system/claude/` → `/home/agent/.claude`
    - `~/.avm/system/claude.json` → `/home/agent/.claude.json` (file bind mount)
-   - `~/.avm/system/mirrors/` → `/home/agent/mirrors`
+   - `~/.avm/mirrors/` → `/home/agent/mirrors`
    - Copy `~/.avm/system/credentials/git/.gitconfig` → `/home/agent/.gitconfig` (plain copy, not a mount)
 2. **`files/` holding mount:** `~/.avm/files/` → `/home/agent/.avm-files/`
 3. **User volumes** from `config.volumes`: for each entry, `mount --bind ~/.avm/volumes/<source>/ <target>`, resolving `<target>` relative to `/home/agent/` unless absolute. Warn (don't fail) if the source path doesn't exist.
@@ -224,16 +228,9 @@ Extract the mount/clone/lockdown logic into reusable functions so the create and
 
 All mount commands are pre-`mkdir -p` on the target, and use `mount --bind` without `-o bind,ro` (read-write everywhere — we rely on lockdown, not mount permissions, for isolation).
 
-**`applyClone(vmName, { skipExisting })`** — applies `--clone` semantics. Independent of create vs. resume:
-
-1. Enumerate `~/.avm/system/mirrors/` — every `*.git` bare repo is a candidate.
-2. `git -C <mirror> fetch --all --prune` on the host for each one.
-3. For each mirror, inside the VM:
-   - If `~/work/<name>/` exists and `skipExisting` is true → skip the `git clone`.
-   - Otherwise → `git clone --reference ~/mirrors/<name>.git $(git -C ~/mirrors/<name>.git remote get-url origin) ~/work/<name>`.
-   - Always run `cd ~/work/<name> && avm-link` afterward (even for existing clones) so symlink updates in `config.yaml` take effect on subsequent starts.
-
 **`applyLockdown(vmName)`** — bind-mounts empty directories over `/mnt/mac` and `/Users`. Identical to today's lockdown logic.
+
+There's deliberately no `applyClone` helper. Cloning repos is the agent's responsibility inside the VM, guided by the in-VM CLAUDE.md. The CLI's job is to make the tools available (`~/mirrors/` populated, `~/.avm-files/` mounted, `avm-link` installed) and get out of the way.
 
 ## Generated `avm-link`
 
@@ -267,7 +264,7 @@ esac
 - `avm-link` with no argument reads the repo name from `$(basename "$PWD")`. Intended to be run from inside a freshly cloned repo working directory.
 - `avm-link <name>` uses the explicit name. Useful when cloning into a non-standard path.
 - Exits 0 with no action for repos that have no configured symlinks.
-- The CLI's own `--clone` path invokes this helper after each clone — one code path for applying symlinks.
+- `avm-link` is the single source of truth for applying per-repo symlinks. The CLI never calls it directly — the agent invokes it after cloning.
 
 ### Generation Rules
 
@@ -298,7 +295,7 @@ Add:
 - `avmSystemGitConfigFile = path.join(avmSystemDir, "credentials/git/.gitconfig")`
 - `avmSystemClaudeDir = path.join(avmSystemDir, "claude")`
 - `avmSystemClaudeJsonFile = path.join(avmSystemDir, "claude.json")`
-- `avmSystemMirrorsDir = path.join(avmSystemDir, "mirrors")`
+- `avmMirrorsDir = path.join(AVM_HOME, "mirrors")` (lifted to top level — mirrors aren't `system/`)
 - `avmVolumesDir = path.join(AVM_HOME, "volumes")`
 - `avmFilesDir = path.join(AVM_HOME, "files")`
 - `avmConfigFile = path.join(AVM_HOME, "config.yaml")`
@@ -335,10 +332,10 @@ Keep and reorganize so the function ends with:
 
 Split the current single `start` command into two:
 
-- **`cli/commands/create.ts`** (new) — owns the old create flow. Command metadata: `name: "create"`, description: "Create and start a new agent VM." Args: optional positional `name`, `--clone`, `--attach`. Implementation follows the `avm create` flow in the "Command Split" section above.
-- **`cli/commands/start.ts`** (rewritten) — owns the new resume flow. Command metadata: `name: "start"`, description: "Resume a stopped agent VM." Args: required positional `id`, `--clone`, `--attach`. Implementation follows the `avm start` flow in the "Command Split" section above.
+- **`cli/commands/create.ts`** (new) — owns the old create flow. Command metadata: `name: "create"`, description: "Create and start a new agent VM." Args: optional positional `name`, `--attach`. Implementation follows the `avm create` flow in the "Command Split" section above.
+- **`cli/commands/start.ts`** (rewritten) — owns the new resume flow. Command metadata: `name: "start"`, description: "Resume a stopped agent VM." Args: required positional `id`, `--attach`. Implementation follows the `avm start` flow in the "Command Split" section above.
 
-Shared orchestration (`applySessionMounts`, `applyClone`, `applyLockdown`) lives in whichever file is cleanest — either alongside the commands or in a new `lib/session.ts` if it starts to dominate either command file. Start with a single file and extract only if it exceeds ~200 lines.
+Shared orchestration (`applySessionMounts`, `applyLockdown`) lives in whichever file is cleanest — either alongside the commands or in a new `lib/session.ts` if it starts to dominate either command file. Start with a single file and extract only if it exceeds ~200 lines.
 
 Register both commands in `cli/avm.ts`:
 
@@ -368,11 +365,15 @@ Rewrite as a generic in-VM CLAUDE.md seed:
 ### `README.md`, `CLAUDE.md`, `skills/avm/SKILL.md`
 
 Strip Alcova-specific language throughout. Document:
-- The new `~/.avm/` layout
+- The new `~/.avm/` layout (`system/`, `mirrors/`, `volumes/`, `files/`, `config.yaml`, `setup.sh`)
 - Config file format and resolution rules
 - `setup.sh` and `/opt/avm/helpers.sh`
-- `avm-link` usage
+- `avm-link` usage inside the VM
+- The command split (`avm create` vs `avm start`)
+- No `--clone` flag — cloning is the agent's job; the in-VM CLAUDE.md tells it how
 - No auto-migration from old layout — users start fresh
+
+`skills/avm/SKILL.md` additionally gains a "First-time setup on a fresh machine" section so the host-side Claude can guide users through populating `~/.avm/system/` — generating an SSH key, setting up a git identity, dropping `.gitconfig` in place, creating an initial mirror or two. This makes the skill a real onboarding assistant, not just a runtime command reference.
 
 ## New: `examples/setup.sh`
 
@@ -413,8 +414,8 @@ A brand-new clone of `avm` + `pnpm link --global` does nothing useful on its own
 
 The README's "First-Time Setup" section walks through these five steps in order. We do not auto-scaffold `~/.avm/` — the user creates the directories themselves (or via `cp -r` from the repo's examples). Scaffolding would be code to debug for a one-time operation.
 
-Optional after step 3, for `--clone` to be useful:
-- Populate `~/.avm/system/mirrors/` with bare clones of frequently-used repos.
+Optional after step 3, for a faster agent workflow:
+- Populate `~/.avm/mirrors/` with bare clones of frequently-used repos so the agent can do `git clone --reference` against them.
 - Populate `~/.avm/files/envs/<repo>.env` and/or `~/.avm/files/configs/<repo>/*` with per-repo overlays.
 - Populate `~/.avm/volumes/<name>/` with empty directories for caches (they fill as you use them).
 - Create `~/.avm/config.yaml` declaring the volumes and repo symlinks.
@@ -430,7 +431,7 @@ Optional after step 3, for `--clone` to be useful:
 | Config parsing + validation | CLI | `lib/config-file.ts` (new) | New — reads `~/.avm/config.yaml` |
 | Mount orchestration | CLI | `cli/commands/start.ts` | Rewritten to use new config |
 | `avm-link` generator | CLI | `cli/commands/start.ts` (or helper in `lib/`) | New |
-| Mirrors helpers | CLI | `lib/mirrors.ts` | Path updates only |
+| Mirrors helpers | — | `lib/mirrors.ts` | **Deleted** — was only used by `--clone` flow |
 | VM helpers library | CLI (installed into VM) | `templates/vm-helpers.sh` (new) | New |
 | In-VM CLAUDE.md seed | CLI | `templates/vm-claude.md` | Rewritten generic |
 | Example setup script | CLI (ships as example) | `examples/setup.sh` | New |
@@ -481,10 +482,12 @@ Keeping this in its own file keeps `start.ts` focused on orchestration and makes
 - `templates/vm-claude.md` — generic, no Alcova references, documents `avm create` vs `avm start`
 - `README.md`, `CLAUDE.md`, `skills/avm/SKILL.md` — reflect new model and command split
 
+**Deleted:**
+- `lib/mirrors.ts` — its `ensureMirror` / `updateMirrors` functions existed only to support the `--clone` flow. Mirror lifecycle (`git clone --mirror`, `git fetch`) becomes the user's responsibility, guided by the `avm` host skill during onboarding.
+
 **Unchanged:**
 - `cli/commands/list.ts`, `cli/commands/attach.ts`, `cli/commands/stop.ts`, `cli/commands/clean.ts`
 - `lib/vm.ts`
-- `lib/mirrors.ts` (only path constant imports update)
 - `build.mjs`, `package.json` except adding `yaml` dep
 
 **Added dep:** `yaml` (npm package) for config parsing.
