@@ -19,16 +19,17 @@ import { $ } from "zx";
 const BASE_VM_NAME = "alcova-base";
 const VM_USER = "agent";
 
-const reprovision = process.argv.includes("--reprovision");
+const args = process.argv.slice(2).filter((a) => a !== "--");
+const reprovision = args.includes("--reprovision");
 
 // --- Helpers to run commands in the VM ---
 
 async function asRoot(cmd: string) {
-  await $`ssh root@${BASE_VM_NAME}@orb -- bash -lc ${cmd}`;
+  await $({ input: cmd })`ssh root@${BASE_VM_NAME}@orb bash -l`;
 }
 
 async function asAgent(cmd: string) {
-  await $`ssh ${BASE_VM_NAME}@orb -- bash -lc ${cmd}`;
+  await $({ input: cmd })`ssh ${BASE_VM_NAME}@orb bash -l`;
 }
 
 // --- Create or recreate the VM ---

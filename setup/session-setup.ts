@@ -21,7 +21,8 @@ const REPO_DEPS: Record<string, string[]> = {
 
 // --- Parse args ---
 
-const [repoName, branch] = process.argv.slice(2);
+const args = process.argv.slice(2).filter((a) => a !== "--");
+const [repoName, branch] = args;
 if (!repoName || !branch) {
   console.error("Usage: session-setup.ts <repo> <branch>");
   console.error("Example: session-setup.ts operator-ui feat/my-thing");
@@ -54,20 +55,19 @@ for (const dir of [
 }
 
 async function asRoot(cmd: string) {
-  await $`ssh root@${vmName}@orb -- bash -lc ${cmd}`;
+  await $({ input: cmd })`ssh root@${vmName}@orb bash -l`;
 }
 
 async function asAgent(cmd: string) {
-  await $`ssh ${vmName}@orb -- bash -lc ${cmd}`;
+  await $({ input: cmd })`ssh ${vmName}@orb bash -l`;
 }
 
 async function waitForSsh() {
   console.log("==> Waiting for SSH...");
   for (let i = 0; i < 30; i++) {
-    const result =
-      await $`ssh -o ConnectTimeout=1 root@${vmName}@orb -- echo ok`
-        .quiet()
-        .nothrow();
+    const result = await $({ input: "echo ok" })`ssh -o ConnectTimeout=1 root@${vmName}@orb bash -l`
+      .quiet()
+      .nothrow();
     if (result.exitCode === 0) return;
     await $`sleep 1`;
   }
@@ -156,11 +156,14 @@ if (existsSync(envFile)) {
 }
 
 // --- Lock down host mount ---
+// VirtioFS mounts don't support chmod. Instead, bind-mount empty directories
+// over the mount points to hide the host filesystem from the agent user.
 
 console.log("==> Locking down host mount...");
 await asRoot(`
-  chmod 700 /mnt/mac
-  chmod 700 /Users
+  mkdir -p /tmp/empty-mnt /tmp/empty-users
+  mount --bind /tmp/empty-mnt /mnt/mac
+  mount --bind /tmp/empty-users /Users
 `);
 
 // --- Print connection info ---
