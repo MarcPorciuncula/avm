@@ -194,12 +194,13 @@ Neither command takes a `--clone` flag. Cloning repos is the agent's job inside 
 
 ### `avm start <id>`
 
-1. **Name argument required.** If missing, error: `avm start requires a VM id. Use 'avm create' to start a new session.`
-2. Normalize the id and look it up in `listAvmVms()`:
-   - **Not found** → error: `No VM matching "<id>". Use 'avm list' to see sessions, or 'avm create <name>' to start a new one.`
-   - **Running** → error: `VM <name> is already running. Use 'avm attach <id>' to connect.`
-   - **Stopped** → proceed with the resume flow below.
-3. Name matching on `avm start` is **exact only**, not prefix-based. The resume flow re-applies mounts and lockdown, which are destructive to any ephemeral state left in the VM (none, practically, since bind mounts don't persist across stop — but the intent-clarity still matters). Exact matching keeps users from accidentally resuming the wrong VM when two stopped VMs share a prefix. `attach`, `clean`, and `stop` keep their prefix matching because their blast radius is bounded differently (attach is read-only, clean prompts for confirmation, stop is easily reversible).
+1. **Id argument required.** If missing, error: `avm start requires a VM id. Use 'avm create' to start a new session.`
+2. Resolve the id via `resolveVmByPrefix(args.id, await listAvmVms())`, the same helper `attach`, `stop`, and `clean` use:
+   - **No match** → `resolveVmByPrefix` throws `No VM matching "<id>".`; print the error plus the hint `Use 'avm list' to see sessions, or 'avm create <name>' to start a new one.` and exit non-zero.
+   - **Ambiguous prefix** → `resolveVmByPrefix` throws with the candidate list; surface verbatim and exit non-zero.
+   - **Unique match, already running** → error: `VM <name> is already running. Use 'avm attach <id>' to connect.`
+   - **Unique match, stopped** → proceed with the resume flow below.
+3. Prefix matching on `avm start` mirrors `attach`, `stop`, and `clean`. The earlier "exact only" stance was motivated by a concern that's no longer reachable: now that `avm start` can't create, every input refers to a VM that already exists, and `resolveVmByPrefix` already errors on ambiguous matches. Consistency across the id-consuming commands wins.
 4. **Resume flow** (orchestration):
    1. Read `~/.avm/config.yaml` (tolerate absence).
    2. `orb start <name>`, wait for SSH. **No** `orb clone` — the VM already exists.
@@ -211,7 +212,7 @@ Existing working copies in `~/work/` persist across stop/start — they're part 
 
 ### Shared Orchestration Helpers
 
-Extract the mount and lockdown logic into reusable functions so the create and resume flows share one code path. Home: either `cli/commands/start.ts` next to the commands, or a new `lib/session.ts` — pick whichever keeps the command files cleanest at implementation time. Names below are illustrative.
+Extract the mount and lockdown logic into reusable functions so the create and resume flows share one code path. Home: a new `lib/session.ts`. Both `cli/commands/create.ts` and `cli/commands/start.ts` import from it. Rationale: the project convention (per `CLAUDE.md`) is that command files are self-contained and read shared logic from `lib/`, not from each other. Putting the helpers in `start.ts` would force `create.ts` to import across the `commands/` boundary; the new `lib/` file respects the convention from day one and keeps both command files small. Names below are illustrative.
 
 **`applySessionMounts(vmName, config)`** — idempotent setup of all mounts that must exist on every session start:
 
@@ -335,7 +336,7 @@ Split the current single `start` command into two:
 - **`cli/commands/create.ts`** (new) — owns the old create flow. Command metadata: `name: "create"`, description: "Create and start a new agent VM." Args: optional positional `name`, `--attach`. Implementation follows the `avm create` flow in the "Command Split" section above.
 - **`cli/commands/start.ts`** (rewritten) — owns the new resume flow. Command metadata: `name: "start"`, description: "Resume a stopped agent VM." Args: required positional `id`, `--attach`. Implementation follows the `avm start` flow in the "Command Split" section above.
 
-Shared orchestration (`applySessionMounts`, `applyLockdown`) lives in whichever file is cleanest — either alongside the commands or in a new `lib/session.ts` if it starts to dominate either command file. Start with a single file and extract only if it exceeds ~200 lines.
+Shared orchestration (`applySessionMounts`, `applyLockdown`) lives in `lib/session.ts` — see "Shared Orchestration Helpers" above. Both command files import from there.
 
 Register both commands in `cli/avm.ts`:
 
@@ -429,8 +430,8 @@ Optional after step 3, for a faster agent workflow:
 | Base VM core provisioner | CLI | `lib/base-vm.ts` | Shrunk to minimal core |
 | Base VM user provisioner | User | `~/.avm/setup.sh` | New — runs after core |
 | Config parsing + validation | CLI | `lib/config-file.ts` (new) | New — reads `~/.avm/config.yaml` |
-| Mount orchestration | CLI | `cli/commands/start.ts` | Rewritten to use new config |
-| `avm-link` generator | CLI | `cli/commands/start.ts` (or helper in `lib/`) | New |
+| Mount orchestration | CLI | `lib/session.ts` | New — shared by `create` and `start` |
+| `avm-link` generator | CLI | `lib/config-file.ts` | New — exported for `lib/session.ts` to call |
 | Mirrors helpers | — | `lib/mirrors.ts` | **Deleted** — was only used by `--clone` flow |
 | VM helpers library | CLI (installed into VM) | `templates/vm-helpers.sh` (new) | New |
 | In-VM CLAUDE.md seed | CLI | `templates/vm-claude.md` | Rewritten generic |
@@ -441,7 +442,7 @@ New file: `lib/config-file.ts`. Responsibilities:
 - Parse YAML via the `yaml` package
 - Validate schema (strict; unknown keys error)
 - Return a typed `AvmConfig` object
-- Export a `generateAvmLinkScript(config): string` function used by start.ts
+- Export a `generateAvmLinkScript(config): string` function called by `lib/session.ts`
 
 Keeping this in its own file keeps `start.ts` focused on orchestration and makes the config logic independently understandable.
 
@@ -472,11 +473,12 @@ Keeping this in its own file keeps `start.ts` focused on orchestration and makes
 - `examples/setup.sh` — working example user script (bash translation of current `lib/base-vm.ts` Alcova content)
 - `templates/vm-helpers.sh` — VM-side `as_agent`/`echo_step` shell helpers (installed at `/opt/avm/helpers.sh` in VMs)
 - `lib/config-file.ts` — YAML parsing, validation, `avm-link` generation
+- `lib/session.ts` — shared `applySessionMounts` + `applyLockdown` helpers called by `create` and `start`
 
 **Rewritten:**
 - `lib/config.ts` — paths point at `~/.avm/`, Alcova constants deleted
 - `lib/base-vm.ts` — shrunk to core, installs helpers, runs user `setup.sh`
-- `cli/commands/start.ts` — now resume-only; takes a required id, calls shared mount/lockdown helpers, errors clearly on missing or running VMs
+- `cli/commands/start.ts` — now resume-only; takes a required id, resolves via `resolveVmByPrefix`, calls shared mount/lockdown helpers in `lib/session.ts`, errors clearly on missing or running VMs
 - `cli/avm.ts` — register both `create` and `start` subcommands
 - `cli/commands/provision.ts` — drops legacy migration, adds `setup.sh` precondition
 - `templates/vm-claude.md` — generic, no Alcova references, documents `avm create` vs `avm start`
