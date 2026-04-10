@@ -45,10 +45,11 @@ Creates a new agent VM, sets up mounts and credentials, and prints (or execs
 into) an SSH command.
 
 **Positional args:**
-- `name` (optional) — full VM name. If omitted, generate `avm-<5 random
-  lowercase alphanumeric chars>` (e.g., `avm-k7xf2`). The name is used as-is;
-  the user is responsible for prefixing it with `avm-` if they want it to show
-  up in `avm list`.
+- `name` (optional) — the suffix after `avm-`. The CLI always prepends `avm-`
+  to produce the real VM name (e.g., `avm start foo` → `avm-foo`). If omitted,
+  generate a 5-char random lowercase alphanumeric suffix (e.g., `avm-k7xf2`).
+  If the user passes a name already starting with `avm-`, strip the prefix
+  before prepending to avoid `avm-avm-foo`.
 
 **Flags:**
 - `--clone` — eagerly reference-clone every repo in `REPO_DEPS` into
