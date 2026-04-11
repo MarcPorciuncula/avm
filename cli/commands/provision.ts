@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { BASE_VM_NAME, LEGACY_BASE_VM_NAME } from "../../lib/config.ts";
+import { existsSync } from "node:fs";
+import { BASE_VM_NAME, avmSetupScript, REPO_ROOT } from "../../lib/config.ts";
 import { provisionBaseVm } from "../../lib/base-vm.ts";
 
 interface OrbListEntry {
@@ -15,6 +16,15 @@ export const provisionCommand = defineCommand({
       "Create or rebuild the base VM template that agent sessions clone from.",
   },
   async run() {
+    if (!existsSync(avmSetupScript)) {
+      console.error(`Error: ${avmSetupScript} not found.`);
+      console.error(
+        `See examples/setup.sh in the avm repo for a starting point:`,
+      );
+      console.error(`  cp ${REPO_ROOT}/examples/setup.sh ${avmSetupScript}`);
+      process.exit(1);
+    }
+
     const result = await $`orb list -f json`.quiet();
     const entries = JSON.parse(result.stdout) as OrbListEntry[];
 
@@ -27,15 +37,6 @@ export const provisionCommand = defineCommand({
       process.exit(1);
     }
 
-    // Migration: if a legacy base VM from before the rename still exists,
-    // remove it so it doesn't clutter `orb list` or confuse new users.
-    const legacy = entries.find((e) => e.name === LEGACY_BASE_VM_NAME);
-    if (legacy) {
-      console.log(`==> Removing legacy ${LEGACY_BASE_VM_NAME} VM...`);
-      await $`orb stop ${LEGACY_BASE_VM_NAME}`.nothrow();
-      await $`orb delete -f ${LEGACY_BASE_VM_NAME}`;
-    }
-
     if (base) {
       console.log(`==> Deleting existing ${BASE_VM_NAME}...`);
       await $`orb delete -f ${BASE_VM_NAME}`;
@@ -45,6 +46,6 @@ export const provisionCommand = defineCommand({
 
     console.log();
     console.log(`Done. Base VM '${BASE_VM_NAME}' is provisioned and stopped.`);
-    console.log(`Start an agent session: avm start --clone --attach`);
+    console.log(`Start an agent session: avm create --attach`);
   },
 });
