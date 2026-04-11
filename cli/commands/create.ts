@@ -12,6 +12,7 @@ import {
   generateSessionName,
   listAvmVms,
   normalizeVmName,
+  shortIdOf,
   waitForSsh,
 } from "../../lib/vm.ts";
 
@@ -41,8 +42,8 @@ export const createCommand = defineCommand({
     if (existing.some((v) => v.name === vmName)) {
       console.error(
         `Error: VM ${vmName} already exists. ` +
-          `Use 'avm start ${vmName.slice(4)}' to resume it, or ` +
-          `'avm clean ${vmName.slice(4)}' to delete and recreate.`,
+          `Use 'avm start ${shortIdOf(vmName)}' to resume it, or ` +
+          `'avm clean ${shortIdOf(vmName)}' to delete and recreate.`,
       );
       process.exit(1);
     }

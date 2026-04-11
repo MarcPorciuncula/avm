@@ -59,6 +59,15 @@ export function normalizeVmName(name: string): string {
 }
 
 /**
+ * Strip the leading `avm-` prefix from a full VM name to get its short
+ * user-facing id. Returns the input unchanged if it doesn't have the
+ * prefix. Inverse of `normalizeVmName`.
+ */
+export function shortIdOf(vmName: string): string {
+  return vmName.startsWith("avm-") ? vmName.slice(4) : vmName;
+}
+
+/**
  * List session VMs — names start with `avm-` and excludes the base VM
  * template (`avm-base`). Uses `orb list -f json`.
  */
