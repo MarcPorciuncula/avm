@@ -2,8 +2,7 @@ import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import {
-  applyLockdown,
-  applySessionMounts,
+  applyPostCreationSetup,
   ensureHostScaffolding,
 } from "../../lib/session.ts";
 import {
@@ -62,8 +61,7 @@ export const createCommand = defineCommand({
     console.log(`==> Creating container ${vmName}...`);
     await $`docker run -d --name ${vmName} --label avm=true avm sleep infinity`;
 
-    await applySessionMounts(vmName, config);
-    await applyLockdown(vmName);
+    await applyPostCreationSetup(vmName, config);
 
     console.log();
     console.log("Session ready.");

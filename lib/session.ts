@@ -5,6 +5,8 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  writeFileSync,
+  unlinkSync,
 } from "node:fs";
 import {
   AVM_HOME,
@@ -18,28 +20,13 @@ import {
   avmVolumesDir,
   REPO_ROOT,
 } from "./config.ts";
-import {
-  type AvmConfig,
-  generateAvmLinkScript,
-  type VolumeMount,
-} from "./config-file.ts";
-import { asRoot } from "./vm.ts";
-
-// TODO(docker-port): session mounts will be replaced with docker volume
-// mounts. For now, keep the host path reference for bind-mount commands
-// that run inside containers with the host filesystem mounted.
-const vmHostAvmHome = `/mnt/mac${AVM_HOME}`;
-
-// Path where `~/.avm/files/` is bind-mounted inside the VM. Chosen so it
-// lives under the agent's home and is not touched by the lockdown of
-// /mnt/mac and /Users.
-const VM_FILES_DIR = "/home/agent/.avm-files";
+import { type AvmConfig, generateAvmLinkScript } from "./config-file.ts";
 
 /**
- * Ensure host-side `~/.avm/system/*` scaffolding exists for session VMs
- * that need to mount it. Creates directories and an empty claude.json if
- * missing so bind-mounts don't fail. Does NOT populate anything — users
- * provide their own credentials and claude state.
+ * Ensure host-side `~/.avm/system/*` scaffolding exists so docker volume
+ * mounts don't fail on missing source dirs. Creates directories and an
+ * empty claude.json if missing. Does NOT populate anything — users provide
+ * their own credentials and claude state.
  */
 export function ensureHostScaffolding(): void {
   const requiredDirs = [
@@ -50,6 +37,7 @@ export function ensureHostScaffolding(): void {
     avmMirrorsDir,
     avmVolumesDir,
     avmFilesDir,
+    path.join(AVM_HOME, "build-context"),
   ];
   for (const dir of requiredDirs) {
     mkdirSync(dir, { recursive: true });
@@ -77,137 +65,84 @@ export function seedInVmClaudeMd(): void {
 }
 
 /**
- * Apply all session mounts to a running VM: fixed system mounts, the
- * `~/.avm/files` holding mount, user volume mounts from config.yaml, the
- * generated `avm-link` script, and the gitconfig copy. Idempotent — safe
- * to call on both fresh clones and on resumed VMs (where orb stop blew
- * the old mounts away).
+ * Post-creation setup that copies files into a container via `docker cp`
+ * and `docker exec`. Called after `docker run` or `docker start`.
+ *
+ * 1. Copies .gitconfig into the container (skips with warning if missing).
+ * 2. Generates and installs the avm-link script.
  */
-export async function applySessionMounts(
-  vmName: string,
+export async function applyPostCreationSetup(
+  containerName: string,
   config: AvmConfig,
 ): Promise<void> {
-  ensureHostScaffolding();
-  seedInVmClaudeMd();
+  // --- Copy .gitconfig ---
+  if (existsSync(avmSystemGitConfigFile)) {
+    await $`docker cp ${avmSystemGitConfigFile} ${containerName}:/home/agent/.gitconfig`;
+    await $`docker exec -u root ${containerName} chown agent:agent /home/agent/.gitconfig`;
+  } else {
+    console.warn(
+      "    [warn] no ~/.avm/system/credentials/git/.gitconfig — skipping .gitconfig copy",
+    );
+  }
+
+  // --- Generate and install avm-link ---
+  const script = generateAvmLinkScript(config);
+  const tempFile = "avm-link-tmp.sh";
+  writeFileSync(tempFile, script);
+  try {
+    await $`docker cp ${tempFile} ${containerName}:/usr/local/bin/avm-link`;
+    await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-link`;
+  } finally {
+    unlinkSync(tempFile);
+  }
+}
+
+/**
+ * Build the `-v` flag array for `docker run`. Encodes all fixed system
+ * mounts and user-configured volumes from config.yaml.
+ *
+ * Returns a flat array like `["-v", "src:dst", "-v", "src:dst", ...]`.
+ */
+export function getDockerMountArgs(config: AvmConfig): string[] {
+  const args: string[] = [];
 
   // --- Fixed system mounts ---
+  const fixedMounts: [string, string][] = [
+    [avmSystemSshDir, "/home/agent/.ssh"],
+    [avmSystemClaudeDir, "/home/agent/.claude"],
+    [avmSystemClaudeJsonFile, "/home/agent/.claude.json"],
+    [avmMirrorsDir, "/home/agent/mirrors"],
+    [avmFilesDir, "/home/agent/.avm-files"],
+  ];
 
-  console.log("==> Setting up bind-mounts...");
-  await asRoot(
-    vmName,
-    `
-    set -euo pipefail
-    mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/mirrors ${VM_FILES_DIR}
-    touch /home/agent/.claude.json
+  for (const [source, target] of fixedMounts) {
+    args.push("-v", `${source}:${target}`);
+  }
 
-    mount --bind "${vmHostAvmHome}/system/credentials/ssh" /home/agent/.ssh
-    mount --bind "${vmHostAvmHome}/system/claude" /home/agent/.claude
-    mount --bind "${vmHostAvmHome}/system/claude.json" /home/agent/.claude.json
-    mount --bind "${vmHostAvmHome}/mirrors" /home/agent/mirrors
-    mount --bind "${vmHostAvmHome}/files" ${VM_FILES_DIR}
+  // --- User volumes from config.yaml ---
+  for (const volume of config.volumes) {
+    const resolvedSource = volume.source.startsWith("/")
+      ? volume.source
+      : path.join(avmVolumesDir, volume.source);
 
-    chown agent:agent /home/agent/.claude.json
-    chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/mirrors ${VM_FILES_DIR}
-  `,
-  );
-
-  // --- Copy gitconfig (not a mount — it's a small identity file) ---
-
-  console.log("==> Copying git config...");
-  await asRoot(
-    vmName,
-    `
-    set -euo pipefail
-    if [ -f "${vmHostAvmHome}/system/credentials/git/.gitconfig" ]; then
-      cp "${vmHostAvmHome}/system/credentials/git/.gitconfig" /home/agent/.gitconfig
-      chown agent:agent /home/agent/.gitconfig
-    else
-      echo "    (no ~/.avm/system/credentials/git/.gitconfig — skipping)" >&2
-    fi
-  `,
-  );
-
-  // --- User volume mounts ---
-
-  if (config.volumes.length > 0) {
-    console.log("==> Applying user volume mounts...");
-    for (const volume of config.volumes) {
-      await applyVolumeMount(vmName, volume);
+    let resolvedTarget: string;
+    if (volume.target.startsWith("/")) {
+      resolvedTarget = volume.target;
+    } else if (volume.target.startsWith("~/")) {
+      resolvedTarget = `/home/agent/${volume.target.slice(2)}`;
+    } else {
+      resolvedTarget = `/home/agent/${volume.target}`;
     }
+
+    if (!existsSync(resolvedSource)) {
+      console.warn(
+        `    [warn] volume source missing: ${resolvedSource} — skipping mount to ${resolvedTarget}`,
+      );
+      continue;
+    }
+
+    args.push("-v", `${resolvedSource}:${resolvedTarget}`);
   }
 
-  // --- Generated avm-link ---
-
-  console.log("==> Installing /usr/local/bin/avm-link...");
-  const script = generateAvmLinkScript(config);
-  await $({
-    input: script,
-  })`docker exec -i -u root ${vmName} bash -c "cat > /usr/local/bin/avm-link && chmod +x /usr/local/bin/avm-link"`;
-}
-
-/**
- * Bind-mount empty directories over /mnt/mac and /Users so the agent user
- * can't traverse back to the host filesystem. VirtioFS doesn't support
- * chmod, so this mask is the only reliable way to lock these down.
- */
-export async function applyLockdown(vmName: string): Promise<void> {
-  console.log("==> Locking down host mount...");
-  await asRoot(
-    vmName,
-    `
-    set -euo pipefail
-    mkdir -p /tmp/empty-mnt /tmp/empty-users
-    mount --bind /tmp/empty-mnt /mnt/mac
-    mount --bind /tmp/empty-users /Users
-  `,
-  );
-}
-
-// ---------- Private helpers ----------
-
-/** Apply a single user volume mount, resolving source and target paths. */
-async function applyVolumeMount(
-  vmName: string,
-  volume: VolumeMount,
-): Promise<void> {
-  const hostSource = resolveVolumeSource(volume.source);
-  const vmSource = volume.source.startsWith("/")
-    ? volume.source
-    : `${vmHostAvmHome}/volumes/${volume.source}`;
-  const vmTarget = resolveVolumeTarget(volume.target);
-
-  if (!existsSync(hostSource)) {
-    console.warn(
-      `    [warn] volume source missing: ${hostSource} — skipping mount to ${vmTarget}`,
-    );
-    return;
-  }
-
-  await asRoot(
-    vmName,
-    `
-    set -euo pipefail
-    mkdir -p "${vmTarget}"
-    mount --bind "${vmSource}" "${vmTarget}"
-    chown -R agent:agent "${vmTarget}" || true
-  `,
-  );
-}
-
-/** Resolve a host-side volume source (for existence checks). */
-function resolveVolumeSource(source: string): string {
-  if (source.startsWith("/")) return source;
-  return path.join(avmVolumesDir, source);
-}
-
-/**
- * Resolve a volume target to an absolute path inside the VM.
- * - Absolute paths pass through.
- * - `~/` expands to `/home/agent/`.
- * - Relative paths are rooted at `/home/agent/`.
- */
-function resolveVolumeTarget(target: string): string {
-  if (target.startsWith("/")) return target;
-  if (target.startsWith("~/")) return `/home/agent/${target.slice(2)}`;
-  return `/home/agent/${target}`;
+  return args;
 }

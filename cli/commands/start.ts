@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { applyLockdown, applySessionMounts } from "../../lib/session.ts";
+import { applyPostCreationSetup } from "../../lib/session.ts";
 import {
   attachToVm,
   listAvmVms,
@@ -67,10 +67,9 @@ export const startCommand = defineCommand({
     console.log(`==> Starting ${vmName}...`);
     await $`docker start ${vmName}`;
 
-    // Reapply session mounts and regenerate /usr/local/bin/avm-link so
+    // Regenerate /usr/local/bin/avm-link and copy .gitconfig so
     // config.yaml changes take effect on resume.
-    await applySessionMounts(vmName, config);
-    await applyLockdown(vmName);
+    await applyPostCreationSetup(vmName, config);
 
     console.log();
     console.log("Session ready.");
