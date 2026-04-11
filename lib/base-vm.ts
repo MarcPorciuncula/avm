@@ -94,6 +94,9 @@ export async function provisionBaseVm(): Promise<void> {
   console.log("==> Installing /opt/avm/helpers.sh...");
   const helpersPath = path.join(REPO_ROOT, "templates", "vm-helpers.sh");
   const helpersContents = readFileSync(helpersPath, "utf-8");
+  // Can't use asRoot here — asRoot pipes the *command* via stdin, but we
+  // need to pipe the helpers file *contents* via stdin so `cat` can
+  // receive them. Direct SSH call with the command as an argument.
   await $({
     input: helpersContents,
   })`ssh root@${BASE_VM_NAME}@orb "mkdir -p /opt/avm && cat > /opt/avm/helpers.sh && chmod 644 /opt/avm/helpers.sh"`;
@@ -111,7 +114,8 @@ export async function provisionBaseVm(): Promise<void> {
 
   console.log("==> Running user setup.sh...");
   await asRoot(`
-    cp ${vmHostAvmHome}/setup.sh /tmp/avm-user-setup.sh
+    set -e
+    cp "${vmHostAvmHome}/setup.sh" /tmp/avm-user-setup.sh
     bash /tmp/avm-user-setup.sh
     rm /tmp/avm-user-setup.sh
   `);
