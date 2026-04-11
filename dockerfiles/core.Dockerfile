@@ -26,6 +26,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1 &
     apt-get install -y -qq nodejs > /dev/null && \
     rm -rf /var/lib/apt/lists/*
 
+# --- Docker CLI (socket is mounted from host; only the client is needed) ---
+
+RUN curl -fsSL https://get.docker.com | sh > /dev/null 2>&1 && \
+    rm -rf /var/lib/apt/lists/*
+
 # --- Create agent user ---
 
 RUN useradd -m -s /bin/bash agent && \

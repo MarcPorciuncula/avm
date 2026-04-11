@@ -78,10 +78,6 @@ RUN export PATH=$PATH:/usr/local/go/bin && \
     go install honnef.co/go/tools/cmd/staticcheck@latest
 USER root
 
-# --- Docker CLI (not daemon) ---
-
-RUN curl -fsSL https://get.docker.com | sh > /dev/null 2>&1
-
 # --- Git URL rewriting for Alcova-AI private repos ---
 
 RUN git config --system url."git@github.com:Alcova-AI/".insteadOf "https://github.com/Alcova-AI/"
