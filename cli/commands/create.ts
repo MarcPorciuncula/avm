@@ -52,7 +52,13 @@ export const createCommand = defineCommand({
     // exists before we try to bind-mount it into the VM.
     ensureHostScaffolding();
 
-    const config = loadAvmConfig();
+    let config;
+    try {
+      config = loadAvmConfig();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
 
     console.log(`==> Cloning ${BASE_VM_NAME} -> ${vmName}...`);
     await $`orb clone ${BASE_VM_NAME} ${vmName}`;

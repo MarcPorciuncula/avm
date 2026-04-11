@@ -57,7 +57,13 @@ export const startCommand = defineCommand({
       process.exit(1);
     }
 
-    const config = loadAvmConfig();
+    let config;
+    try {
+      config = loadAvmConfig();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
 
     console.log(`==> Starting ${vmName}...`);
     await $`orb start ${vmName}`;
