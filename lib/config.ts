@@ -1,5 +1,6 @@
 import { path } from "zx";
 import os from "node:os";
+import { readlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export const AVM_LABEL = "avm=true";
@@ -27,3 +28,21 @@ export const avmVolumesDir = path.join(AVM_HOME, "volumes");
 export const avmFilesDir = path.join(AVM_HOME, "files");
 
 export const avmConfigFile = path.join(AVM_HOME, "config.yaml");
+
+/**
+ * Detect the host IANA timezone (e.g. "Australia/Sydney") by reading the
+ * /etc/localtime symlink. Returns undefined if detection fails.
+ */
+export function getHostTimezone(): string | undefined {
+  try {
+    const target = readlinkSync("/etc/localtime");
+    const marker = "zoneinfo/";
+    const idx = target.indexOf(marker);
+    if (idx !== -1) {
+      return target.slice(idx + marker.length);
+    }
+  } catch {
+    // /etc/localtime missing or not a symlink
+  }
+  return process.env.TZ || undefined;
+}

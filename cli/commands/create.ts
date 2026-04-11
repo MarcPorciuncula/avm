@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { USER_IMAGE, AVM_LABEL } from "../../lib/config.ts";
+import { USER_IMAGE, AVM_LABEL, getHostTimezone } from "../../lib/config.ts";
 import {
   applyPostCreationSetup,
   ensureHostScaffolding,
@@ -61,12 +61,16 @@ export const createCommand = defineCommand({
 
     const mountArgs = getDockerMountArgs(config);
 
+    const tz = getHostTimezone();
+    const tzArgs = tz ? ["-e", `TZ=${tz}`] : [];
+
     console.log(`==> Creating container ${vmName}...`);
     await $`docker run -d ${[
       "--name", vmName,
       "--label", AVM_LABEL,
       "--network", "host",
       "--init",
+      ...tzArgs,
       "-v", "/var/run/docker.sock:/var/run/docker.sock",
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
