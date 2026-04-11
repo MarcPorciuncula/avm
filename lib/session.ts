@@ -91,14 +91,15 @@ export async function applySessionMounts(
   await asRoot(
     vmName,
     `
+    set -euo pipefail
     mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/mirrors ${VM_FILES_DIR}
     touch /home/agent/.claude.json
 
-    mount --bind ${vmHostAvmHome}/system/credentials/ssh /home/agent/.ssh
-    mount --bind ${vmHostAvmHome}/system/claude /home/agent/.claude
-    mount --bind ${vmHostAvmHome}/system/claude.json /home/agent/.claude.json
-    mount --bind ${vmHostAvmHome}/mirrors /home/agent/mirrors
-    mount --bind ${vmHostAvmHome}/files ${VM_FILES_DIR}
+    mount --bind "${vmHostAvmHome}/system/credentials/ssh" /home/agent/.ssh
+    mount --bind "${vmHostAvmHome}/system/claude" /home/agent/.claude
+    mount --bind "${vmHostAvmHome}/system/claude.json" /home/agent/.claude.json
+    mount --bind "${vmHostAvmHome}/mirrors" /home/agent/mirrors
+    mount --bind "${vmHostAvmHome}/files" ${VM_FILES_DIR}
 
     chown agent:agent /home/agent/.claude.json
     chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/mirrors ${VM_FILES_DIR}
@@ -111,8 +112,9 @@ export async function applySessionMounts(
   await asRoot(
     vmName,
     `
-    if [ -f ${vmHostAvmHome}/system/credentials/git/.gitconfig ]; then
-      cp ${vmHostAvmHome}/system/credentials/git/.gitconfig /home/agent/.gitconfig
+    set -euo pipefail
+    if [ -f "${vmHostAvmHome}/system/credentials/git/.gitconfig" ]; then
+      cp "${vmHostAvmHome}/system/credentials/git/.gitconfig" /home/agent/.gitconfig
       chown agent:agent /home/agent/.gitconfig
     else
       echo "    (no ~/.avm/system/credentials/git/.gitconfig — skipping)" >&2
@@ -148,6 +150,7 @@ export async function applyLockdown(vmName: string): Promise<void> {
   await asRoot(
     vmName,
     `
+    set -euo pipefail
     mkdir -p /tmp/empty-mnt /tmp/empty-users
     mount --bind /tmp/empty-mnt /mnt/mac
     mount --bind /tmp/empty-users /Users
@@ -178,6 +181,7 @@ async function applyVolumeMount(
   await asRoot(
     vmName,
     `
+    set -euo pipefail
     mkdir -p "${vmTarget}"
     mount --bind "${vmSource}" "${vmTarget}"
     chown -R agent:agent "${vmTarget}" || true
