@@ -1,53 +1,25 @@
 import { defineCommand } from "citty";
-import { $, path } from "zx";
-import {
-  closeSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-} from "node:fs";
+import { $ } from "zx";
 import { spawnSync } from "node:child_process";
+import { loadAvmConfig } from "../../lib/config-file.ts";
+import { applyLockdown, applySessionMounts } from "../../lib/session.ts";
 import {
-  ALL_REPOS,
-  BASE_VM_NAME,
-  GITHUB_ORG,
-  REPO_DEPS,
-  cacheDir,
-  claudeDir,
-  claudeJsonFile,
-  credentialsDir,
-  envsDir,
-  mirrorsDir,
-  templatesDir,
-  vmHostPrefix,
-} from "../../lib/config.ts";
-import {
-  asAgent,
-  asRoot,
-  generateSessionName,
   listAvmVms,
-  normalizeVmName,
+  resolveVmByPrefix,
+  shortIdOf,
   waitForSsh,
 } from "../../lib/vm.ts";
-import { updateMirrors } from "../../lib/mirrors.ts";
 
 export const startCommand = defineCommand({
   meta: {
     name: "start",
-    description: "Create and start a new agent VM.",
+    description: "Resume a stopped agent VM.",
   },
   args: {
-    name: {
+    id: {
       type: "positional",
-      required: false,
-      description:
-        "Suffix for the VM name (avm- is prepended automatically). Random if omitted.",
-    },
-    clone: {
-      type: "boolean",
-      description:
-        "Reference-clone all known repos into ~/work/<repo> and symlink .env files from ~/envs.",
+      required: true,
+      description: "Short ID (or unique prefix) of the VM to resume.",
     },
     attach: {
       type: "boolean",
@@ -55,120 +27,48 @@ export const startCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const vmName = args.name
-      ? normalizeVmName(args.name)
-      : generateSessionName();
-
-    const existing = await listAvmVms();
-    if (existing.some((v) => v.name === vmName)) {
-      console.error(`Error: VM ${vmName} already exists.`);
+    if (!args.id) {
+      console.error(
+        "Error: avm start requires a VM id. Use 'avm create' to start a new session.",
+      );
       process.exit(1);
     }
 
-    // Ensure host-side data directories exist.
-    const requiredDirs = [
-      path.join(credentialsDir, "ssh"),
-      path.join(credentialsDir, "git"),
-      path.join(cacheDir, "shared", "pnpm-store"),
-      claudeDir,
-      mirrorsDir,
-      envsDir,
-    ];
-    for (const dir of requiredDirs) {
-      mkdirSync(dir, { recursive: true });
+    const vms = await listAvmVms();
+
+    let vmName: string;
+    let vmStatus: string;
+    try {
+      const { vm } = resolveVmByPrefix(args.id, vms);
+      vmName = vm.name;
+      vmStatus = vm.status;
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      console.error(
+        `Use 'avm list' to see sessions, or 'avm create <name>' to start a new one.`,
+      );
+      process.exit(1);
     }
 
-    // Ensure data/claude.json exists so we can bind-mount it as a file.
-    if (!existsSync(claudeJsonFile)) {
-      closeSync(openSync(claudeJsonFile, "a"));
+    if (vmStatus === "running") {
+      console.error(
+        `Error: VM ${vmName} is already running. Use 'avm attach ${shortIdOf(vmName)}' to connect.`,
+      );
+      process.exit(1);
     }
 
-    // Seed the in-VM CLAUDE.md from the template on first use. Never overwrite
-    // an existing file so developers can customize it freely.
-    const vmClaudeMd = path.join(claudeDir, "CLAUDE.md");
-    if (!existsSync(vmClaudeMd)) {
-      const templatePath = path.join(templatesDir, "vm-claude.md");
-      if (existsSync(templatePath)) {
-        copyFileSync(templatePath, vmClaudeMd);
-      }
-    }
+    const config = loadAvmConfig();
 
-    if (args.clone) {
-      console.log("==> Ensuring mirrors are fresh...");
-      await updateMirrors(ALL_REPOS);
-    }
-
-    console.log(`==> Cloning ${BASE_VM_NAME} -> ${vmName}...`);
-    await $`orb clone ${BASE_VM_NAME} ${vmName}`;
+    console.log(`==> Starting ${vmName}...`);
     await $`orb start ${vmName}`;
     console.log("==> Waiting for SSH...");
     await waitForSsh(vmName);
 
-    console.log("==> Setting up bind-mounts...");
-    await asRoot(
-      vmName,
-      `
-      mkdir -p /home/agent/.ssh /home/agent/.claude /home/agent/.local/share/pnpm/store /home/agent/mirrors /home/agent/envs
-      touch /home/agent/.claude.json
-
-      mount --bind ${vmHostPrefix}/data/credentials/ssh /home/agent/.ssh
-      mount --bind ${vmHostPrefix}/data/claude /home/agent/.claude
-      mount --bind ${vmHostPrefix}/data/claude.json /home/agent/.claude.json
-      mount --bind ${vmHostPrefix}/data/cache/shared/pnpm-store /home/agent/.local/share/pnpm/store
-      mount --bind ${vmHostPrefix}/data/mirrors /home/agent/mirrors
-      mount --bind ${vmHostPrefix}/data/envs /home/agent/envs
-
-      chown agent:agent /home/agent/.claude.json
-      chown -R agent:agent /home/agent/.ssh /home/agent/.claude /home/agent/.local /home/agent/mirrors /home/agent/envs
-    `,
-    );
-
-    console.log("==> Copying git config...");
-    await asRoot(
-      vmName,
-      `
-      cp ${vmHostPrefix}/data/credentials/git/.gitconfig /home/agent/.gitconfig
-      chown agent:agent /home/agent/.gitconfig
-    `,
-    );
-
-    if (args.clone) {
-      console.log("==> Cloning repos...");
-      for (const repo of ALL_REPOS) {
-        console.log(`    ${repo}...`);
-        await asAgent(
-          vmName,
-          `
-          git clone --reference /home/agent/mirrors/${repo}.git \
-            git@github.com:${GITHUB_ORG}/${repo}.git \
-            /home/agent/work/${repo}
-        `,
-        );
-      }
-
-      for (const primaryRepo of Object.keys(REPO_DEPS)) {
-        const envFile = path.join(envsDir, `${primaryRepo}.env`);
-        if (existsSync(envFile)) {
-          console.log(`==> Symlinking .env for ${primaryRepo}...`);
-          await asAgent(
-            vmName,
-            `
-            ln -sf /home/agent/envs/${primaryRepo}.env /home/agent/work/${primaryRepo}/.env
-          `,
-          );
-        }
-      }
-    }
-
-    console.log("==> Locking down host mount...");
-    await asRoot(
-      vmName,
-      `
-      mkdir -p /tmp/empty-mnt /tmp/empty-users
-      mount --bind /tmp/empty-mnt /mnt/mac
-      mount --bind /tmp/empty-users /Users
-    `,
-    );
+    // Bind mounts don't persist across orb stop, so every resume has to
+    // redo them. This also regenerates /usr/local/bin/avm-link, so
+    // config.yaml changes take effect on resume.
+    await applySessionMounts(vmName, config);
+    await applyLockdown(vmName);
 
     console.log();
     console.log("Session ready.");
