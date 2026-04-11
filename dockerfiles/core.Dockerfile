@@ -26,19 +26,18 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1 &
     apt-get install -y -qq nodejs > /dev/null && \
     rm -rf /var/lib/apt/lists/*
 
-# --- Claude Code ---
-
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
 # --- Create agent user ---
 
 RUN useradd -m -s /bin/bash agent && \
     groupadd -f docker && \
     usermod -aG docker agent
 
-# --- Git defaults ---
+# --- Claude Code (must run as agent — installs to ~/.claude/) ---
 
 USER agent
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# --- Git defaults ---
 RUN git config --global init.defaultBranch main && \
     git config --global pull.rebase true
 
