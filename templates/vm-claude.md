@@ -74,6 +74,17 @@ avm-link <name>
 Repos that aren't in the config are a no-op — `avm-link` exits 0 without
 doing anything.
 
+## Task Tracking: `dex`
+
+`dex` is a task tracking CLI installed in this container. Task data is
+stored at `~/.dex-data/<project>/` (mounted from the host), and each
+repo has a `.dex/config.toml` symlink (created by `avm-link`) that
+points dex at the right project store.
+
+When the user references "dex" they mean the task tracker, not a repo.
+Use `dex list`, `dex show`, `dex create`, etc. to interact with tasks.
+Do not clone or work in a dex source repo.
+
 ## Claude Code
 
 The `clauded` alias runs Claude Code with
