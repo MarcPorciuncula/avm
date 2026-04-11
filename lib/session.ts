@@ -1,10 +1,8 @@
 import { $, path } from "zx";
 import {
-  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
-  openSync,
   writeFileSync,
   unlinkSync,
 } from "node:fs";
@@ -44,9 +42,9 @@ export function ensureHostScaffolding(): void {
   }
 
   // The bind mount for ~/.claude.json is a file mount, so the file has to
-  // exist on both sides. Create an empty one if missing.
+  // exist on both sides. Seed with `{}` so Claude Code sees valid JSON.
   if (!existsSync(avmSystemClaudeJsonFile)) {
-    closeSync(openSync(avmSystemClaudeJsonFile, "a"));
+    writeFileSync(avmSystemClaudeJsonFile, "{}\n");
   }
 }
 
