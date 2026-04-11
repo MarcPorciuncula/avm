@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { applyPostCreationSetup } from "../../lib/session.ts";
+import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
 import {
   attachToVm,
   listAvmVms,
@@ -12,23 +12,23 @@ import {
 export const startCommand = defineCommand({
   meta: {
     name: "start",
-    description: "Resume a stopped agent VM.",
+    description: "Resume a stopped agent container.",
   },
   args: {
     id: {
       type: "positional",
       required: true,
-      description: "Short ID (or unique prefix) of the VM to resume.",
+      description: "Short ID (or unique prefix) of the container to resume.",
     },
     attach: {
       type: "boolean",
-      description: "After setup, exec into the VM via SSH.",
+      description: "After setup, attach to the container.",
     },
   },
   async run({ args }) {
     if (!args.id) {
       console.error(
-        "Error: avm start requires a VM id. Use 'avm create' to start a new session.",
+        "Error: avm start requires a container id. Use 'avm create' to start a new session.",
       );
       process.exit(1);
     }
@@ -51,10 +51,12 @@ export const startCommand = defineCommand({
 
     if (vmStatus === "running") {
       console.error(
-        `Error: VM ${vmName} is already running. Use 'avm attach ${shortIdOf(vmName)}' to connect.`,
+        `Error: Container ${vmName} is already running. Use 'avm attach ${shortIdOf(vmName)}' to connect.`,
       );
       process.exit(1);
     }
+
+    ensureHostScaffolding();
 
     let config;
     try {

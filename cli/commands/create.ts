@@ -1,9 +1,12 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
+import { USER_IMAGE, AVM_LABEL } from "../../lib/config.ts";
 import {
   applyPostCreationSetup,
   ensureHostScaffolding,
+  getDockerMountArgs,
+  seedInVmClaudeMd,
 } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -16,18 +19,18 @@ import {
 export const createCommand = defineCommand({
   meta: {
     name: "create",
-    description: "Create and start a new agent VM.",
+    description: "Create and start a new agent container.",
   },
   args: {
     name: {
       type: "positional",
       required: false,
       description:
-        "Suffix for the VM name (avm- is prepended automatically). Random if omitted.",
+        "Suffix for the container name (avm- is prepended automatically). Random if omitted.",
     },
     attach: {
       type: "boolean",
-      description: "After setup, exec into the VM via SSH.",
+      description: "After setup, attach to the container.",
     },
   },
   async run({ args }) {
@@ -38,16 +41,15 @@ export const createCommand = defineCommand({
     const existing = await listAvmVms();
     if (existing.some((v) => v.name === vmName)) {
       console.error(
-        `Error: VM ${vmName} already exists. ` +
+        `Error: Container ${vmName} already exists. ` +
           `Use 'avm start ${shortIdOf(vmName)}' to resume it, or ` +
           `'avm clean ${shortIdOf(vmName)}' to delete and recreate.`,
       );
       process.exit(1);
     }
 
-    // Make sure host scaffolding (~/.avm/system/*, ~/.avm/mirrors, etc.)
-    // exists before we try to bind-mount it into the VM.
     ensureHostScaffolding();
+    seedInVmClaudeMd();
 
     let config;
     try {
@@ -57,9 +59,17 @@ export const createCommand = defineCommand({
       process.exit(1);
     }
 
-    // TODO(docker-port): replace with docker run from USER_IMAGE
+    const mountArgs = getDockerMountArgs(config);
+
     console.log(`==> Creating container ${vmName}...`);
-    await $`docker run -d --name ${vmName} --label avm=true avm sleep infinity`;
+    await $`docker run -d ${[
+      "--name", vmName,
+      "--label", AVM_LABEL,
+      "--network", "host",
+      "--init",
+      "-v", "/var/run/docker.sock:/var/run/docker.sock",
+      ...mountArgs,
+    ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 
     await applyPostCreationSetup(vmName, config);
 

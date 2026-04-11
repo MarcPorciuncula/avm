@@ -4,12 +4,12 @@ import { listAvmVms } from "../../lib/vm.ts";
 export const listCommand = defineCommand({
   meta: {
     name: "list",
-    description: "List agent VMs (filtered to avm-* names).",
+    description: "List agent containers.",
   },
   async run() {
     const vms = await listAvmVms();
     if (vms.length === 0) {
-      console.log("No agent VMs.");
+      console.log("No agent containers.");
       return;
     }
 

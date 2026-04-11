@@ -6,12 +6,12 @@ import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 export const cleanCommand = defineCommand({
   meta: {
     name: "clean",
-    description: "Stop and delete one or more agent VMs.",
+    description: "Stop and delete one or more agent containers.",
   },
   args: {
     all: {
       type: "boolean",
-      description: "Clean every VM matching `avm-*`.",
+      description: "Clean every avm container.",
     },
   },
   async run({ args }) {
@@ -30,7 +30,7 @@ export const cleanCommand = defineCommand({
     if (args.all) {
       targets = vms.map((v) => ({ name: v.name, isPartial: false }));
       if (targets.length === 0) {
-        console.log("No agent VMs to clean.");
+        console.log("No agent containers to clean.");
         return;
       }
     } else {

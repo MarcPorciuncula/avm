@@ -10,7 +10,7 @@ import { provisionCommand } from "./commands/provision.ts";
 const main = defineCommand({
   meta: {
     name: "avm",
-    description: "Manage agent VMs.",
+    description: "Manage agent containers.",
   },
   subCommands: {
     list: listCommand,

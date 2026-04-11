@@ -5,12 +5,12 @@ import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 export const stopCommand = defineCommand({
   meta: {
     name: "stop",
-    description: "Stop one or more agent VMs without destroying them.",
+    description: "Stop one or more agent containers without destroying them.",
   },
   args: {
     all: {
       type: "boolean",
-      description: "Stop every running session VM.",
+      description: "Stop every running session container.",
     },
   },
   async run({ args }) {
@@ -25,7 +25,7 @@ export const stopCommand = defineCommand({
         .filter((v) => v.status === "running")
         .map((v) => v.name);
       if (targets.length === 0) {
-        console.log("No running agent VMs.");
+        console.log("No running agent containers.");
         return;
       }
     } else {
