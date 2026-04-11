@@ -85,12 +85,6 @@ When the user references "dex" they mean the task tracker, not a repo.
 Use `dex list`, `dex show`, `dex create`, etc. to interact with tasks.
 Do not clone or work in a dex source repo.
 
-## Claude Code
-
-The `clauded` alias runs Claude Code with
-`--dangerously-skip-permissions`. Use it freely — this is the whole
-point of the sandbox.
-
 ## Persistence
 
 Mounted state survives `docker stop` / `docker start` (`avm stop` /
