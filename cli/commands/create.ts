@@ -1,7 +1,5 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { spawnSync } from "node:child_process";
-import { BASE_VM_NAME } from "../../lib/config.ts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import {
   applyLockdown,
@@ -9,11 +7,11 @@ import {
   ensureHostScaffolding,
 } from "../../lib/session.ts";
 import {
+  attachToVm,
   generateSessionName,
   listAvmVms,
   normalizeVmName,
   shortIdOf,
-  waitForSsh,
 } from "../../lib/vm.ts";
 
 export const createCommand = defineCommand({
@@ -60,11 +58,9 @@ export const createCommand = defineCommand({
       process.exit(1);
     }
 
-    console.log(`==> Cloning ${BASE_VM_NAME} -> ${vmName}...`);
-    await $`orb clone ${BASE_VM_NAME} ${vmName}`;
-    await $`orb start ${vmName}`;
-    console.log("==> Waiting for SSH...");
-    await waitForSsh(vmName);
+    // TODO(docker-port): replace with docker run from USER_IMAGE
+    console.log(`==> Creating container ${vmName}...`);
+    await $`docker run -d --name ${vmName} --label avm=true avm sleep infinity`;
 
     await applySessionMounts(vmName, config);
     await applyLockdown(vmName);
@@ -72,15 +68,12 @@ export const createCommand = defineCommand({
     console.log();
     console.log("Session ready.");
     console.log();
-    console.log(`  SSH: ssh ${vmName}@orb`);
+    console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
     console.log();
 
     if (args.attach) {
       console.log(`==> Attaching to ${vmName}...`);
-      const result = spawnSync("ssh", ["-t", `${vmName}@orb`], {
-        stdio: "inherit",
-      });
-      process.exit(result.status ?? 0);
+      process.exit(attachToVm(vmName));
     }
   },
 });

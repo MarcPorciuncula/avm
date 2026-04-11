@@ -64,9 +64,9 @@ export const cleanCommand = defineCommand({
         }
       }
       console.log(`==> Stopping ${target.name}...`);
-      await $`orb stop ${target.name}`.nothrow();
+      await $`docker stop ${target.name}`.nothrow();
       console.log(`==> Deleting ${target.name}...`);
-      await $`orb delete -f ${target.name}`;
+      await $`docker rm -f ${target.name}`;
     }
   },
 });

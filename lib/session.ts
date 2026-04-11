@@ -7,6 +7,7 @@ import {
   openSync,
 } from "node:fs";
 import {
+  AVM_HOME,
   avmFilesDir,
   avmMirrorsDir,
   avmSystemClaudeDir,
@@ -16,7 +17,6 @@ import {
   avmSystemSshDir,
   avmVolumesDir,
   REPO_ROOT,
-  vmHostAvmHome,
 } from "./config.ts";
 import {
   type AvmConfig,
@@ -24,6 +24,11 @@ import {
   type VolumeMount,
 } from "./config-file.ts";
 import { asRoot } from "./vm.ts";
+
+// TODO(docker-port): session mounts will be replaced with docker volume
+// mounts. For now, keep the host path reference for bind-mount commands
+// that run inside containers with the host filesystem mounted.
+const vmHostAvmHome = `/mnt/mac${AVM_HOME}`;
 
 // Path where `~/.avm/files/` is bind-mounted inside the VM. Chosen so it
 // lives under the agent's home and is not touched by the lockdown of
@@ -137,7 +142,7 @@ export async function applySessionMounts(
   const script = generateAvmLinkScript(config);
   await $({
     input: script,
-  })`ssh root@${vmName}@orb "cat > /usr/local/bin/avm-link && chmod +x /usr/local/bin/avm-link"`;
+  })`docker exec -i -u root ${vmName} bash -c "cat > /usr/local/bin/avm-link && chmod +x /usr/local/bin/avm-link"`;
 }
 
 /**

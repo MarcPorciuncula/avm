@@ -48,7 +48,7 @@ export const stopCommand = defineCommand({
 
     for (const name of targets) {
       console.log(`==> Stopping ${name}...`);
-      await $`orb stop ${name}`.nothrow();
+      await $`docker stop ${name}`.nothrow();
     }
   },
 });

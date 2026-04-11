@@ -1,7 +1,6 @@
 import { defineCommand } from "citty";
-import { spawnSync } from "node:child_process";
 import { select, isCancel, cancel } from "@clack/prompts";
-import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
+import { attachToVm, listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const attachCommand = defineCommand({
   meta: {
@@ -46,9 +45,6 @@ export const attachCommand = defineCommand({
       vmName = picked as string;
     }
 
-    const result = spawnSync("ssh", ["-t", `${vmName}@orb`], {
-      stdio: "inherit",
-    });
-    process.exit(result.status ?? 0);
+    process.exit(attachToVm(vmName));
   },
 });
