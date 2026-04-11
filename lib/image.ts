@@ -29,28 +29,25 @@ export async function buildCoreImage(): Promise<void> {
  */
 export async function buildUserImage(): Promise<string> {
   if (!existsSync(USER_DOCKERFILE)) {
-    console.error(`Error: ${USER_DOCKERFILE} not found.`);
-    console.error(
-      `Create a Dockerfile at ${USER_DOCKERFILE} to define your toolchain layer.`,
+    throw new Error(
+      `${USER_DOCKERFILE} not found.\n` +
+        `Create a Dockerfile at ${USER_DOCKERFILE} to define your toolchain layer.\n` +
+        `See examples/Dockerfile in the avm repo for a starting point:\n` +
+        `  cp ${REPO_ROOT}/examples/Dockerfile ${USER_DOCKERFILE}`,
     );
-    console.error(
-      `See examples/Dockerfile in the avm repo for a starting point:`,
-    );
-    console.error(`  cp ${REPO_ROOT}/examples/Dockerfile ${USER_DOCKERFILE}`);
-    process.exit(1);
   }
 
   await $`mkdir -p ${USER_BUILD_CONTEXT}`;
 
   const now = new Date();
   const ts = [
-    String(now.getFullYear()),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
+    String(now.getUTCFullYear()),
+    String(now.getUTCMonth() + 1).padStart(2, "0"),
+    String(now.getUTCDate()).padStart(2, "0"),
     "-",
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
+    String(now.getUTCHours()).padStart(2, "0"),
+    String(now.getUTCMinutes()).padStart(2, "0"),
+    String(now.getUTCSeconds()).padStart(2, "0"),
   ].join("");
 
   const tagTimestamped = `avm:${ts}`;
