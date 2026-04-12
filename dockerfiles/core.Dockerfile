@@ -60,7 +60,8 @@ RUN mkdir -p ~/work
 
 # --- Shell aliases ---
 
-RUN echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc
+RUN echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc && \
+    echo 'source /opt/avm/helpers.sh' >> ~/.bashrc
 
 # --- Install helpers library ---
 
