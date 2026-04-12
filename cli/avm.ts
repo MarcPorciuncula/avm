@@ -1,5 +1,5 @@
 import { defineCommand, runMain } from "citty";
-import { listCommand } from "./commands/list.ts";
+import { listCommand } from "./commands/list.tsx";
 import { createCommand } from "./commands/create.ts";
 import { startCommand } from "./commands/start.ts";
 import { stopCommand } from "./commands/stop.ts";
