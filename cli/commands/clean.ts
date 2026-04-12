@@ -67,6 +67,7 @@ export const cleanCommand = defineCommand({
       await $`docker stop ${target.name}`.nothrow();
       console.log(`==> Deleting ${target.name}...`);
       await $`docker rm -f ${target.name}`;
+      await $`docker volume rm ${target.name}-docker`.nothrow();
     }
   },
 });
