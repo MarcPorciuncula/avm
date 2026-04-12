@@ -30,6 +30,7 @@ avm create [name]         # Create and start a new container
 avm start <id>            # Resume a stopped container (required id; prefix match)
   --attach                # Attach to the container immediately
 avm attach [id]           # Attach to a running container; interactive picker if no id
+avm editor [id]           # Open a container in VS Code / Cursor (auto-detects, saves preference)
 avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more session containers

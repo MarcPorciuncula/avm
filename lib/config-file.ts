@@ -1,11 +1,14 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { path } from "zx";
 import { parseDocument } from "yaml";
 import { avmConfigFile } from "./config.ts";
 
 // ---------- Types ----------
 
+export type EditorChoice = "code" | "cursor";
+
 export interface AvmConfig {
+  editor?: EditorChoice;
   volumes: VolumeMount[];
   repos: Record<string, RepoConfig>;
 }
@@ -41,6 +44,19 @@ export function loadAvmConfig(): AvmConfig {
   }
   const raw = readFileSync(avmConfigFile, "utf-8");
   return parseAvmConfig(raw);
+}
+
+/**
+ * Set the `editor` field in `~/.avm/config.yaml`, preserving all other
+ * content and formatting. Creates the file if it doesn't exist.
+ */
+export function setConfigEditor(editor: EditorChoice): void {
+  const raw = existsSync(avmConfigFile)
+    ? readFileSync(avmConfigFile, "utf-8")
+    : "";
+  const doc = parseDocument(raw);
+  doc.set("editor", editor);
+  writeFileSync(avmConfigFile, doc.toString());
 }
 
 /** Parse + validate YAML content. Separated from I/O for testability. */
@@ -93,7 +109,8 @@ export function generateAvmLinkScript(config: AvmConfig): string {
 
 // ---------- Validation ----------
 
-const TOP_LEVEL_KEYS = new Set(["volumes", "repos"]);
+const TOP_LEVEL_KEYS = new Set(["editor", "volumes", "repos"]);
+const VALID_EDITORS = new Set<string>(["code", "cursor"]);
 const REPO_KEYS = new Set(["symlinks"]);
 
 function validate(data: unknown): AvmConfig {
@@ -112,9 +129,20 @@ function validate(data: unknown): AvmConfig {
     }
   }
 
+  const editor = parseEditor(obj.editor);
   const volumes = parseVolumes(obj.volumes);
   const repos = parseRepos(obj.repos);
-  return { volumes, repos };
+  return { editor, volumes, repos };
+}
+
+function parseEditor(raw: unknown): EditorChoice | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !VALID_EDITORS.has(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "editor" must be one of: ${[...VALID_EDITORS].join(", ")} (got ${describe(raw)}).`,
+    );
+  }
+  return raw as EditorChoice;
 }
 
 function parseVolumes(raw: unknown): VolumeMount[] {

@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
+import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -23,6 +24,10 @@ export const startCommand = defineCommand({
     attach: {
       type: "boolean",
       description: "After setup, attach to the container.",
+    },
+    editor: {
+      type: "boolean",
+      description: "After setup, open the container in your editor.",
     },
   },
   async run({ args }) {
@@ -78,6 +83,11 @@ export const startCommand = defineCommand({
     console.log();
     console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
     console.log();
+
+    if (args.editor) {
+      const cli = await resolveEditorCli(config);
+      if (cli) openInEditor(cli, vmName);
+    }
 
     if (args.attach) {
       console.log(`==> Attaching to ${vmName}...`);
