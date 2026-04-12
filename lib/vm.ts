@@ -12,6 +12,8 @@ export interface VmInfo {
   status: string;
   /** Listening TCP ports (only populated for running containers). */
   ports: number[];
+  /** True if the container's image no longer matches `avm:latest`. */
+  outdated: boolean;
 }
 
 interface DockerPsEntry {
@@ -88,13 +90,44 @@ async function getListeningPorts(containerName: string): Promise<number[]> {
 }
 
 /**
+ * Get the image ID that `avm:latest` currently points to.
+ * Returns null if the image doesn't exist (never provisioned).
+ */
+async function getCurrentImageId(): Promise<string | null> {
+  try {
+    const result =
+      await $`docker inspect --format={{.Id}} avm:latest`.quiet();
+    return result.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the image ID a container was created from.
+ */
+async function getContainerImageId(
+  containerName: string,
+): Promise<string | null> {
+  try {
+    const result =
+      await $`docker inspect --format={{.Image}} ${containerName}`.quiet();
+    return result.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * List avm containers. Uses `docker ps -a` filtered by the avm label.
  * Docker outputs one JSON object per line (not a JSON array).
  */
 export async function listAvmVms(): Promise<VmInfo[]> {
-  const result =
-    await $`docker ps -a --filter label=${AVM_LABEL} --format json`.quiet();
-  const lines = result.stdout.trim().split("\n").filter(Boolean);
+  const [psResult, currentImageId] = await Promise.all([
+    $`docker ps -a --filter label=${AVM_LABEL} --format json`.quiet(),
+    getCurrentImageId(),
+  ]);
+  const lines = psResult.stdout.trim().split("\n").filter(Boolean);
   const vms = lines.map((line) => {
     const entry = JSON.parse(line) as DockerPsEntry;
     const name = entry.Names.replace(/^\//, "");
@@ -103,15 +136,29 @@ export async function listAvmVms(): Promise<VmInfo[]> {
       name,
       status: entry.State === "exited" ? "stopped" : entry.State,
       ports: [] as number[],
+      outdated: false,
     };
   });
 
   await Promise.all(
-    vms
-      .filter((vm) => vm.status === "running")
-      .map(async (vm) => {
-        vm.ports = await getListeningPorts(vm.name);
-      }),
+    vms.map(async (vm) => {
+      const tasks: Promise<void>[] = [];
+      if (vm.status === "running") {
+        tasks.push(
+          getListeningPorts(vm.name).then((ports) => {
+            vm.ports = ports;
+          }),
+        );
+      }
+      if (currentImageId) {
+        tasks.push(
+          getContainerImageId(vm.name).then((id) => {
+            vm.outdated = id !== null && id !== currentImageId;
+          }),
+        );
+      }
+      await Promise.all(tasks);
+    }),
   );
 
   return vms;

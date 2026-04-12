@@ -21,6 +21,9 @@ export const listCommand = defineCommand({
     const fmtPorts = (ports: number[]) =>
       ports.length > 0 ? ports.join(", ") : "";
     const portsStrings = vms.map((v) => fmtPorts(v.ports));
+    const statusStrings = vms.map((v) =>
+      v.outdated ? `${v.status} (outdated)` : v.status,
+    );
 
     const idWidth = Math.max(idHeader.length, ...vms.map((v) => v.id.length));
     const nameWidth = Math.max(
@@ -29,7 +32,7 @@ export const listCommand = defineCommand({
     );
     const statusWidth = Math.max(
       statusHeader.length,
-      ...vms.map((v) => v.status.length),
+      ...statusStrings.map((s) => s.length),
     );
     const portsWidth = Math.max(portsHeader.length, ...portsStrings.map((s) => s.length));
 
@@ -40,7 +43,7 @@ export const listCommand = defineCommand({
     for (let i = 0; i < vms.length; i++) {
       const vm = vms[i]!;
       console.log(
-        `${pad(vm.id, idWidth)}  ${pad(vm.name, nameWidth)}  ${pad(vm.status, statusWidth)}  ${pad(portsStrings[i]!, portsWidth)}`,
+        `${pad(vm.id, idWidth)}  ${pad(vm.name, nameWidth)}  ${pad(statusStrings[i]!, statusWidth)}  ${pad(portsStrings[i]!, portsWidth)}`,
       );
     }
   },
