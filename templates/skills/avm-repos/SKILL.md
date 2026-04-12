@@ -35,4 +35,13 @@ cd ~/work/<name>
 avm-link
 ```
 
+By default `avm-link` uses the directory name to look up the repo
+config. If the directory name doesn't match the repo name in the
+config (e.g. you cloned into a differently-named folder), pass the
+repo name explicitly:
+
+```
+avm-link <repo-name>
+```
+
 Safe to re-run. Repos not in the config are a no-op.
