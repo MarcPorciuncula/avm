@@ -1,8 +1,8 @@
 # avm
 
-A harness for running sandboxed Claude Code agents in OrbStack Linux VMs
+A harness for running sandboxed Claude Code agents in Docker containers
 with `--dangerously-skip-permissions`. Spin up a fresh, credential-loaded
-workspace in a couple of seconds; tear it down when you're done.
+workspace in seconds; tear it down when you're done.
 
 ## Why
 
@@ -10,16 +10,17 @@ Running Claude Code with `--dangerously-skip-permissions` on your host
 machine is reckless — an unrestricted agent can read your credentials,
 trash your filesystem, or do anything your user account can do.
 
-`avm` gives agents full autonomy inside disposable, locked-down OrbStack
-VMs. The agent thinks it has free rein. It does — inside a sandbox. The
-host filesystem is bind-mount-masked after setup, credentials are
-bind-mounted from `~/.avm/`, and repo clones, caches, and Claude Code
-settings can be shared from the host so you don't lose state when a VM
-is destroyed.
+`avm` gives agents full autonomy inside isolated Docker containers. The
+agent thinks it has free rein. It does — inside a sandbox. The container
+only sees explicitly mounted paths: credentials from `~/.avm/`, repo
+clones, caches, and Claude Code settings. Nothing else from the host is
+visible.
 
 ## Requirements
 
-- macOS with [OrbStack](https://orbstack.dev/) installed
+- macOS with [OrbStack](https://orbstack.dev/) installed (Docker
+  provider — OrbStack's Docker runtime supports true `--network host`
+  on macOS)
 - Node 24+ (the CLI itself runs on the host)
 - pnpm (via corepack or standalone)
 - A GitHub SSH key and git identity
@@ -74,54 +75,51 @@ cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub ~/.ssh/config ~/.avm/system/credentia
 cp ~/.gitconfig ~/.avm/system/credentials/git/.gitconfig
 ```
 
-These are bind-mounted read-write into every VM. Claude Code state
+These are mounted into every container. Claude Code state
 (`~/.avm/system/claude/` and `~/.avm/system/claude.json`) fills itself
-in the first time you run `claude` inside a VM — you can leave those
-empty to start.
+in the first time you run `claude` inside a container — you can leave
+those empty to start.
 
-### 2. Create your setup script
+### 2. Create your Dockerfile
 
-`~/.avm/setup.sh` is where you install whatever toolchain your project
-needs — Go, Python, Docker, language-specific CLIs, etc. It runs as
-root inside the base VM during `avm provision` and can source
-`/opt/avm/helpers.sh` for `as_agent` / `echo_step` helpers.
+`~/.avm/Dockerfile` layers your toolchain on top of the `avm-core`
+image — Go, Python, Docker CLI, language-specific tools, etc. It runs
+during `avm provision` as a standard `docker build`.
 
 Copy the provided example to get started:
 
 ```bash
-cp examples/setup.sh ~/.avm/setup.sh
+cp examples/Dockerfile ~/.avm/Dockerfile
 ```
 
-Then edit `~/.avm/setup.sh` to match your stack. The example reproduces
-a Go + Node + Docker environment; delete what you don't need.
+Then edit `~/.avm/Dockerfile` to match your stack. The example
+reproduces a Go + Node + Docker environment; delete what you don't need.
 
-### 3. Provision the base VM
+If your Dockerfile needs to `COPY` files, place them in
+`~/.avm/build-context/` — that directory is used as the Docker build
+context.
+
+### 3. Build the Docker images
 
 ```bash
 avm provision
 ```
 
-This creates the `avm-base` template: a stopped Ubuntu VM with a minimal
-core (build tools, git, Node, Claude Code, `/opt/avm/helpers.sh`) plus
-everything your `setup.sh` installs on top. Takes several minutes on
-first run. If `avm-base` already exists and is stopped, it's deleted and
-rebuilt from scratch; if it's running, the command errors out — stop it
-first with `orb stop avm-base`.
-
-`lib/base-vm.ts` owns the core; `~/.avm/setup.sh` owns the user layer.
-If you need a new core tool (installed by the CLI for everyone), edit
-the core. If you need a project-specific tool, edit your `setup.sh`.
+This builds two images: `avm-core:latest` (from
+`dockerfiles/core.Dockerfile` in the repo) and `avm-user:latest` (from
+your `~/.avm/Dockerfile`). Docker layer caching makes subsequent
+rebuilds fast — only changed layers are rebuilt.
 
 ### 4. (Optional) Declare mounts and per-repo symlinks
 
 Create `~/.avm/config.yaml` to declare bind mounts and per-repo
-symlinks. The file is optional — without it, VMs come up with system
-mounts only.
+symlinks. The file is optional — without it, containers come up with
+system mounts only.
 
 ```yaml
 # ~/.avm/config.yaml
 
-# Bind mounts applied to every session VM on `avm create` or `avm start`.
+# Bind mounts applied to every session container on `avm create`.
 # source is relative to ~/.avm/volumes/
 # target is relative to /home/agent/ (or absolute if starting with /)
 volumes:
@@ -129,8 +127,8 @@ volumes:
   - go-build:~/.cache/go-build
   - cargo:~/.cargo
 
-# Per-repo config, applied by `avm-link` inside the VM after the agent
-# clones a repo. source is relative to ~/.avm/files/.
+# Per-repo config, applied by `avm-link` inside the container after the
+# agent clones a repo. source is relative to ~/.avm/files/.
 repos:
   operator-ui:
     symlinks:
@@ -158,8 +156,8 @@ git clone --mirror git@github.com:<owner>/<repo>.git ~/.avm/mirrors/<repo>.git
 ```
 
 Refresh with `git -C ~/.avm/mirrors/<repo>.git fetch --all --prune`. The
-agent inside the VM can then `git clone --reference ~/mirrors/<repo>.git
-...` for near-instant clones.
+agent inside the container can then `git clone --reference
+~/mirrors/<repo>.git ...` for near-instant clones.
 
 ### 6. Start your first session
 
@@ -167,31 +165,32 @@ agent inside the VM can then `git clone --reference ~/mirrors/<repo>.git
 avm create --attach
 ```
 
-This clones `avm-base` into a fresh session VM, applies your mounts,
-installs `/usr/local/bin/avm-link`, locks down the host mount, and drops
-you into an SSH shell.
+This creates a new container from the `avm-user` image, mounts
+credentials and volumes, applies post-creation setup, and drops you into
+the container.
 
 ## Commands
 
 ```
-avm list                  # List all session VMs
-avm create [name]         # Create and start a new session VM
-  --attach                # Drop straight into the VM via SSH
-avm start <id>            # Resume a stopped session VM
-  --attach                # Drop straight into the VM via SSH
-avm attach [id]           # SSH into a running VM (interactive picker if no id)
-avm stop <id...>          # Stop one or more VMs without destroying them
-  --all                   # Stop every running session VM
-avm clean <id...>         # Stop and delete one or more VMs
-  --all                   # Clean every session VM
-avm provision             # Create or rebuild the avm-base template
+avm list                  # List all session containers
+avm create [name]         # Create and start a new container
+  --attach                # Attach to the container immediately
+avm start <id>            # Resume a stopped container
+  --attach                # Attach to the container immediately
+avm attach [id]           # Attach to a running container (interactive picker if no id)
+avm stop <id...>          # Stop one or more containers without destroying them
+  --all                   # Stop every running session container
+avm clean <id...>         # Stop and delete one or more containers
+  --all                   # Clean every session container
+avm provision             # Build or rebuild the Docker images
 ```
 
 IDs are the 5-char suffix after `avm-`. You can pass a prefix — if it
-matches exactly one VM, it works; ambiguous prefixes print the list of
-matches and exit. `avm clean` with a prefix prompts for confirmation.
+matches exactly one container, it works; ambiguous prefixes print the
+list of matches and exit. `avm clean` with a prefix prompts for
+confirmation.
 
-Inside every VM, `clauded` is an alias for
+Inside every container, `clauded` is an alias for
 `claude --dangerously-skip-permissions`, and `avm-link` applies the
 per-repo symlinks declared in `~/.avm/config.yaml`.
 
@@ -204,72 +203,62 @@ which ship as part of the CLI.
 ```
 ~/.avm/
 ├── config.yaml           # user-edited: volumes + per-repo config (optional)
-├── setup.sh              # user-written: base VM setup script (required for `avm provision`)
-├── system/               # fixed layout; mounted into every session VM
+├── Dockerfile            # user-written: layers toolchain on avm-core (required for `avm provision`)
+├── build-context/        # Docker build context for ~/.avm/Dockerfile (COPY sources go here)
+├── system/               # fixed layout; mounted into every session container
 │   ├── credentials/
-│   │   ├── ssh/          # → ~/.ssh in VM (bind mount)
+│   │   ├── ssh/          # → ~/.ssh in container (bind mount)
 │   │   └── git/
-│   │       └── .gitconfig # → ~/.gitconfig in VM (copied)
-│   ├── claude/           # → ~/.claude in VM (bind mount)
-│   └── claude.json       # → ~/.claude.json in VM (file bind mount)
-├── mirrors/              # → ~/mirrors in VM (bind mount)
+│   │       └── .gitconfig # → ~/.gitconfig in container (copied)
+│   ├── claude/           # → ~/.claude in container (bind mount)
+│   └── claude.json       # → ~/.claude.json in container (file bind mount)
+├── mirrors/              # → ~/mirrors in container (bind mount)
 ├── volumes/              # bind sources declared in config.yaml
-└── files/                # symlink sources for avm-link (→ ~/.avm-files in VM)
+└── files/                # symlink sources for avm-link (→ ~/.avm-files in container)
 ```
 
 ## How `avm create` / `avm start` Work
 
-Both commands share the same mount + lockdown orchestration in
-`lib/session.ts`. The difference is just what happens first:
+Both commands share post-creation orchestration in `lib/session.ts`. The
+difference is what happens first:
 
-- **`avm create`** runs `orb clone avm-base <name>` + `orb start`, then
-  applies mounts and lockdown.
-- **`avm start`** runs `orb start <name>` (the VM already exists), then
-  re-applies mounts and lockdown. Bind mounts don't persist across stop,
-  so every resume has to redo them — which is why `config.yaml` changes
-  take effect on resume.
+- **`avm create`** runs `docker run` with all mount arguments from
+  `getDockerMountArgs`, creating and starting the container in one step.
+- **`avm start`** runs `docker start` (the container already exists with
+  its mounts baked in from creation).
 
-Rough order of operations for both:
+Both then run `applyPostCreationSetup`:
 
-1. Resolve / generate the VM name.
-2. Read `~/.avm/config.yaml` (tolerate absence).
-3. `orb clone` (create only) + `orb start`, poll SSH until it's up.
-4. Bind-mount `~/.avm/system/*`, `~/.avm/mirrors`, `~/.avm/files`, and
-   every `volumes:` entry from `config.yaml`.
-5. Copy `.gitconfig` to `/home/agent/.gitconfig`.
-6. Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md`
+1. Copy `.gitconfig` to `/home/agent/.gitconfig`.
+2. Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md`
    if missing (never overwrites).
-7. Generate `/usr/local/bin/avm-link` from `config.yaml`.
-8. Lock down `/mnt/mac` and `/Users` with empty bind mounts.
-9. Print the SSH command (or `exec` into it if `--attach`).
+3. Generate `/usr/local/bin/avm-link` from `config.yaml`.
 
-All bind mounts — including the ones under `system/credentials/` — are
-established *before* the lockdown, and the lockdown only masks
-`/mnt/mac` and `/Users`. The agent can't escape to the host, but it can
-still read its SSH keys and write to the shared caches.
+Mounts are established at container creation time and persist across
+`docker stop` / `docker start`. The container only sees explicitly
+mounted paths — no lockdown step is needed.
 
-## Cloning Repos From Inside the VM
+## Cloning Repos From Inside the Container
 
 `avm create` and `avm start` deliberately don't clone repos. That's the
-agent's job, inside the VM. The CLI's job is to make the tools
+agent's job, inside the container. The CLI's job is to make the tools
 available: mirrors at `~/mirrors/`, overlay files at `~/.avm-files/`,
-and `avm-link` on the PATH. The in-VM `CLAUDE.md` (seeded from
+and `avm-link` on the PATH. The in-container `CLAUDE.md` (seeded from
 `templates/vm-claude.md`) tells the agent how to use them.
 
 ## Customizing
 
 ### Adding a toolchain package
 
-Edit `~/.avm/setup.sh` and add the install command, then:
+Edit `~/.avm/Dockerfile` and add the install command, then:
 
 ```bash
-orb stop avm-base
 avm provision
 ```
 
-This rebuilds `avm-base`. Running session VMs are unaffected — they're
-copy-on-write clones and don't share state with the template after
-creation.
+This rebuilds the images. Docker layer caching means only changed layers
+are rebuilt, so incremental changes are fast. Running containers are
+unaffected — they use the image that existed at creation time.
 
 ### Adding a per-repo config
 
@@ -283,45 +272,47 @@ repos:
 ```
 
 Then drop `~/.avm/files/envs/my-new-service.env` in place. The next
-`avm create` (or `avm start` on an existing VM) picks up the change.
+`avm create` picks up the change. Existing containers get the update
+on `avm start`.
 
-### Customizing in-VM Claude behavior
+### Customizing in-container Claude behavior
 
 `~/.avm/system/claude/CLAUDE.md` is loaded automatically by Claude Code
-inside every VM. On first session creation it's seeded from
+inside every container. On first session creation it's seeded from
 `templates/vm-claude.md`. Edit it freely afterwards — the seed is never
 re-copied over an existing file.
 
 ## Architecture Notes
 
-- **No state service.** `orb list -f json` is the source of truth. The
-  CLI is a thin wrapper over `orb` and SSH.
-- **VMs are reusable workspaces, not per-PR containers.** Name them
-  whatever fits the way you work. Cleanup is manual.
+- **No state service.** `docker ps --filter label=avm=true` is the
+  source of truth. The CLI is a thin wrapper over `docker`.
+- **Containers are reusable workspaces, not per-PR containers.** Name
+  them whatever fits the way you work. Cleanup is manual.
 - **No automated tests.** This is a CLI glue layer. Verification is
   manual: run the commands, check that things work.
 
 ## Troubleshooting
 
-- **`avm provision` fails with "setup.sh not found"** — copy the
-  example: `cp examples/setup.sh ~/.avm/setup.sh`, then edit it to fit
-  your stack.
-- **`avm provision` fails partway through your `setup.sh`** — the base
-  VM is left half-built. Run `avm provision` again; it'll delete and
-  rebuild from scratch.
-- **Login doesn't persist across VMs** — make sure
-  `~/.avm/system/claude.json` exists on the host. It's bind-mounted as
-  a file into every VM; without it, Claude Code runs first-run setup
-  every time. `avm create` creates an empty file if one isn't there.
-- **`pnpm install` inside the VM is slow every time** — declare a
+- **`avm provision` fails with "Dockerfile not found"** — copy the
+  example: `cp examples/Dockerfile ~/.avm/Dockerfile`, then edit it to
+  fit your stack.
+- **`avm provision` fails during image build** — fix the Dockerfile
+  issue and rerun `avm provision`. Docker layer caching means only
+  failed layers are rebuilt.
+- **Login doesn't persist across containers** — make sure
+  `~/.avm/system/claude.json` exists on the host. It's mounted as a
+  file into every container; without it, Claude Code runs first-run
+  setup every time. `avm create` creates an empty file if one isn't
+  there.
+- **`pnpm install` inside the container is slow every time** — declare a
   pnpm-store volume in `~/.avm/config.yaml`:
   `- pnpm-store:~/.local/share/pnpm/store`, and create
   `~/.avm/volumes/pnpm-store/`.
-- **`git clone` inside the VM is slow** — populate
+- **`git clone` inside the container is slow** — populate
   `~/.avm/mirrors/<repo>.git` with `git clone --mirror ...`, and have
   the agent use `git clone --reference ~/mirrors/<repo>.git ...`.
-- **`avm create` fails with "VM already exists"** — that name is taken.
-  Use `avm list` to see what's running; `avm start <id>` to resume, or
-  `avm clean <id>` to free it up.
-- **`avm start <id>` fails with "already running"** — the VM is already
-  up. Use `avm attach <id>` instead.
+- **`avm create` fails with "container already exists"** — that name is
+  taken. Use `avm list` to see what's running; `avm start <id>` to
+  resume, or `avm clean <id>` to free it up.
+- **`avm start <id>` fails with "already running"** — the container is
+  already up. Use `avm attach <id>` instead.

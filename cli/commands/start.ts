@@ -1,35 +1,34 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { spawnSync } from "node:child_process";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { applyLockdown, applySessionMounts } from "../../lib/session.ts";
+import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
 import {
+  attachToVm,
   listAvmVms,
   resolveVmByPrefix,
   shortIdOf,
-  waitForSsh,
 } from "../../lib/vm.ts";
 
 export const startCommand = defineCommand({
   meta: {
     name: "start",
-    description: "Resume a stopped agent VM.",
+    description: "Resume a stopped agent container.",
   },
   args: {
     id: {
       type: "positional",
       required: true,
-      description: "Short ID (or unique prefix) of the VM to resume.",
+      description: "Short ID (or unique prefix) of the container to resume.",
     },
     attach: {
       type: "boolean",
-      description: "After setup, exec into the VM via SSH.",
+      description: "After setup, attach to the container.",
     },
   },
   async run({ args }) {
     if (!args.id) {
       console.error(
-        "Error: avm start requires a VM id. Use 'avm create' to start a new session.",
+        "Error: avm start requires a container id. Use 'avm create' to start a new session.",
       );
       process.exit(1);
     }
@@ -52,10 +51,12 @@ export const startCommand = defineCommand({
 
     if (vmStatus === "running") {
       console.error(
-        `Error: VM ${vmName} is already running. Use 'avm attach ${shortIdOf(vmName)}' to connect.`,
+        `Error: Container ${vmName} is already running. Use 'avm attach ${shortIdOf(vmName)}' to connect.`,
       );
       process.exit(1);
     }
+
+    ensureHostScaffolding();
 
     let config;
     try {
@@ -66,28 +67,21 @@ export const startCommand = defineCommand({
     }
 
     console.log(`==> Starting ${vmName}...`);
-    await $`orb start ${vmName}`;
-    console.log("==> Waiting for SSH...");
-    await waitForSsh(vmName);
+    await $`docker start ${vmName}`;
 
-    // Bind mounts don't persist across orb stop, so every resume has to
-    // redo them. This also regenerates /usr/local/bin/avm-link, so
+    // Regenerate /usr/local/bin/avm-link and copy .gitconfig so
     // config.yaml changes take effect on resume.
-    await applySessionMounts(vmName, config);
-    await applyLockdown(vmName);
+    await applyPostCreationSetup(vmName, config);
 
     console.log();
     console.log("Session ready.");
     console.log();
-    console.log(`  SSH: ssh ${vmName}@orb`);
+    console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
     console.log();
 
     if (args.attach) {
       console.log(`==> Attaching to ${vmName}...`);
-      const result = spawnSync("ssh", ["-t", `${vmName}@orb`], {
-        stdio: "inherit",
-      });
-      process.exit(result.status ?? 0);
+      process.exit(attachToVm(vmName));
     }
   },
 });

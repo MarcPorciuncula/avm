@@ -1,46 +1,40 @@
 import { $ } from "zx";
 import { randomBytes } from "node:crypto";
-import { BASE_VM_NAME } from "./config.ts";
+import { spawnSync } from "node:child_process";
+import { AVM_LABEL } from "./config.ts";
 
 export interface VmInfo {
   /** Short ID — the suffix after `avm-`. */
   id: string;
-  /** Full VM name, e.g. `avm-k7xf2`. */
+  /** Full container name, e.g. `avm-k7xf2`. */
   name: string;
-  /** OrbStack state: "running" | "stopped" | other. */
+  /** Container state: "running" | "stopped" | other. */
   status: string;
 }
 
-interface OrbListEntry {
-  name: string;
-  state: string;
+interface DockerPsEntry {
+  Names: string;
+  State: string;
 }
 
-/** Pipe `cmd` to `bash -l` running as root on the given VM. */
+/** Pipe `cmd` to `bash -l` running as root in the given container. */
 export async function asRoot(vmName: string, cmd: string): Promise<void> {
-  await $({ input: cmd })`ssh root@${vmName}@orb bash -l`;
+  await $({ input: cmd })`docker exec -i -u root ${vmName} bash -l`;
 }
 
-/** Pipe `cmd` to `bash -l` running as the default agent user on the given VM. */
+/** Pipe `cmd` to `bash -l` running as the agent user in the given container. */
 export async function asAgent(vmName: string, cmd: string): Promise<void> {
-  await $({ input: cmd })`ssh ${vmName}@orb bash -l`;
+  await $({ input: cmd })`docker exec -i -u agent ${vmName} bash -l`;
 }
 
-/** Poll SSH connectivity. Throws if SSH doesn't come up within `timeoutSeconds`. */
-export async function waitForSsh(
-  vmName: string,
-  timeoutSeconds = 30,
-): Promise<void> {
-  for (let i = 0; i < timeoutSeconds; i++) {
-    const result = await $({
-      input: "echo ok",
-    })`ssh -o ConnectTimeout=1 root@${vmName}@orb bash -l`
-      .quiet()
-      .nothrow();
-    if (result.exitCode === 0) return;
-    await $`sleep 1`;
-  }
-  throw new Error(`SSH not available on ${vmName} after ${timeoutSeconds}s`);
+/** Attach an interactive shell to the given container. Returns the exit code. */
+export function attachToVm(vmName: string): number {
+  const result = spawnSync(
+    "docker",
+    ["exec", "-it", vmName, "bash", "-l"],
+    { stdio: "inherit" },
+  );
+  return result.status ?? 1;
 }
 
 /** Generate a random 5-char lowercase alphanumeric suffix and return `avm-<suffix>`. */
@@ -59,7 +53,7 @@ export function normalizeVmName(name: string): string {
 }
 
 /**
- * Strip the leading `avm-` prefix from a full VM name to get its short
+ * Strip the leading `avm-` prefix from a full container name to get its short
  * user-facing id. Returns the input unchanged if it doesn't have the
  * prefix. Inverse of `normalizeVmName`.
  */
@@ -68,22 +62,22 @@ export function shortIdOf(vmName: string): string {
 }
 
 /**
- * List session VMs — names start with `avm-` and excludes the base VM
- * template (`avm-base`). Uses `orb list -f json`.
+ * List avm containers. Uses `docker ps -a` filtered by the avm label.
+ * Docker outputs one JSON object per line (not a JSON array).
  */
 export async function listAvmVms(): Promise<VmInfo[]> {
-  const result = await $`orb list -f json`.quiet();
-  const entries = JSON.parse(result.stdout) as OrbListEntry[];
-  return entries
-    .filter(
-      (entry) =>
-        entry.name.startsWith("avm-") && entry.name !== BASE_VM_NAME,
-    )
-    .map((entry) => ({
-      id: entry.name.slice(4),
-      name: entry.name,
-      status: entry.state,
-    }));
+  const result =
+    await $`docker ps -a --filter label=${AVM_LABEL} --format json`.quiet();
+  const lines = result.stdout.trim().split("\n").filter(Boolean);
+  return lines.map((line) => {
+    const entry = JSON.parse(line) as DockerPsEntry;
+    const name = entry.Names.replace(/^\//, "");
+    return {
+      id: name.startsWith("avm-") ? name.slice(4) : name,
+      name,
+      status: entry.State === "exited" ? "stopped" : entry.State,
+    };
+  });
 }
 
 export interface PrefixResolution {

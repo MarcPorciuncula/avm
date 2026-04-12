@@ -1,7 +1,7 @@
 {
   "name": "avm",
   "version": "1.0.0",
-  "description": "A harness for running sandboxed Claude Code agents in OrbStack Linux VMs with `--dangerously-skip-permissions`.",
+  "description": "A harness for running sandboxed Claude Code agents in Docker containers with `--dangerously-skip-permissions`.",
   "bin": {
     "avm": "./dist/avm.mjs"
   },

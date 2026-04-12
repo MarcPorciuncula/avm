@@ -1,19 +1,18 @@
 import { defineCommand } from "citty";
-import { spawnSync } from "node:child_process";
 import { select, isCancel, cancel } from "@clack/prompts";
-import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
+import { attachToVm, listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const attachCommand = defineCommand({
   meta: {
     name: "attach",
     description:
-      "SSH into an agent VM. If no ID is given, pick one interactively.",
+      "Attach to an agent container. If no ID is given, pick one interactively.",
   },
   args: {
     id: {
       type: "positional",
       required: false,
-      description: "Short ID of the VM to attach to.",
+      description: "Short ID of the container to attach to.",
     },
   },
   async run({ args }) {
@@ -29,11 +28,11 @@ export const attachCommand = defineCommand({
       }
     } else {
       if (vms.length === 0) {
-        console.log("No agent VMs. Run `avm start` first.");
+        console.log("No agent containers. Run `avm create` first.");
         return;
       }
       const picked = await select({
-        message: "Select a VM to attach to",
+        message: "Select a container to attach to",
         options: vms.map((vm) => ({
           value: vm.name,
           label: `${vm.id} (${vm.status})`,
@@ -46,9 +45,6 @@ export const attachCommand = defineCommand({
       vmName = picked as string;
     }
 
-    const result = spawnSync("ssh", ["-t", `${vmName}@orb`], {
-      stdio: "inherit",
-    });
-    process.exit(result.status ?? 0);
+    process.exit(attachToVm(vmName));
   },
 });
