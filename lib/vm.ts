@@ -10,6 +10,8 @@ export interface VmInfo {
   name: string;
   /** Container state: "running" | "stopped" | other. */
   status: string;
+  /** Listening TCP ports (only populated for running containers). */
+  ports: number[];
 }
 
 interface DockerPsEntry {
@@ -62,6 +64,30 @@ export function shortIdOf(vmName: string): string {
 }
 
 /**
+ * Get TCP ports a running container is listening on.
+ * Reads /proc/net/tcp and /proc/net/tcp6 inside the container — state 0A is LISTEN.
+ * Returns an empty array for non-running containers or on any error.
+ */
+async function getListeningPorts(containerName: string): Promise<number[]> {
+  try {
+    const result =
+      await $`docker exec ${containerName} cat /proc/net/tcp /proc/net/tcp6`.quiet();
+    const ports = new Set<number>();
+    for (const line of result.stdout.split("\n")) {
+      //   sl  local_address rem_address  st ...
+      //    0: 0100007F:AEB3 00000000:0000 0A ...
+      const cols = line.trim().split(/\s+/);
+      if (cols[3] !== "0A") continue;
+      const hexPort = cols[1]?.split(":")[1];
+      if (hexPort) ports.add(parseInt(hexPort, 16));
+    }
+    return [...ports].sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * List avm containers. Uses `docker ps -a` filtered by the avm label.
  * Docker outputs one JSON object per line (not a JSON array).
  */
@@ -69,15 +95,26 @@ export async function listAvmVms(): Promise<VmInfo[]> {
   const result =
     await $`docker ps -a --filter label=${AVM_LABEL} --format json`.quiet();
   const lines = result.stdout.trim().split("\n").filter(Boolean);
-  return lines.map((line) => {
+  const vms = lines.map((line) => {
     const entry = JSON.parse(line) as DockerPsEntry;
     const name = entry.Names.replace(/^\//, "");
     return {
       id: name.startsWith("avm-") ? name.slice(4) : name,
       name,
       status: entry.State === "exited" ? "stopped" : entry.State,
+      ports: [] as number[],
     };
   });
+
+  await Promise.all(
+    vms
+      .filter((vm) => vm.status === "running")
+      .map(async (vm) => {
+        vm.ports = await getListeningPorts(vm.name);
+      }),
+  );
+
+  return vms;
 }
 
 export interface PrefixResolution {

@@ -16,6 +16,12 @@ export const listCommand = defineCommand({
     const idHeader = "ID";
     const nameHeader = "NAME";
     const statusHeader = "STATUS";
+    const portsHeader = "PORTS";
+
+    const fmtPorts = (ports: number[]) =>
+      ports.length > 0 ? ports.join(", ") : "";
+    const portsStrings = vms.map((v) => fmtPorts(v.ports));
+
     const idWidth = Math.max(idHeader.length, ...vms.map((v) => v.id.length));
     const nameWidth = Math.max(
       nameHeader.length,
@@ -25,14 +31,16 @@ export const listCommand = defineCommand({
       statusHeader.length,
       ...vms.map((v) => v.status.length),
     );
+    const portsWidth = Math.max(portsHeader.length, ...portsStrings.map((s) => s.length));
 
     const pad = (s: string, w: number) => s.padEnd(w);
     console.log(
-      `${pad(idHeader, idWidth)}  ${pad(nameHeader, nameWidth)}  ${pad(statusHeader, statusWidth)}`,
+      `${pad(idHeader, idWidth)}  ${pad(nameHeader, nameWidth)}  ${pad(statusHeader, statusWidth)}  ${pad(portsHeader, portsWidth)}`,
     );
-    for (const vm of vms) {
+    for (let i = 0; i < vms.length; i++) {
+      const vm = vms[i]!;
       console.log(
-        `${pad(vm.id, idWidth)}  ${pad(vm.name, nameWidth)}  ${pad(vm.status, statusWidth)}`,
+        `${pad(vm.id, idWidth)}  ${pad(vm.name, nameWidth)}  ${pad(vm.status, statusWidth)}  ${pad(portsStrings[i]!, portsWidth)}`,
       );
     }
   },
