@@ -6,9 +6,9 @@
     "avm": "./dist/avm.mjs"
   },
   "scripts": {
-    "build": "node build.mjs",
-    "dev": "tsx cli/avm.ts",
-    "prepare": "node build.mjs"
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "prepare": "tsdown"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.0",
@@ -23,6 +23,6 @@
     "zx": "^8.8.5"
   },
   "devDependencies": {
-    "esbuild": "^0.28.0"
+    "tsdown": "^0.21.7"
   }
 }
