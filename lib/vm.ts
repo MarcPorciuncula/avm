@@ -77,11 +77,16 @@ async function getListeningPorts(containerName: string): Promise<number[]> {
     const ports = new Set<number>();
     for (const line of result.stdout.split("\n")) {
       //   sl  local_address rem_address  st ...
-      //    0: 0100007F:AEB3 00000000:0000 0A ...
+      //    0: 00000000:1F90 00000000:0000 0A ...   (wildcard v4)
+      //    0: 0100007F:AEB3 00000000:0000 0A ...   (loopback v4 — skip)
       const cols = line.trim().split(/\s+/);
       if (cols[3] !== "0A") continue;
-      const hexPort = cols[1]?.split(":")[1];
-      if (hexPort) ports.add(parseInt(hexPort, 16));
+      const [hexAddr, hexPort] = cols[1]?.split(":") ?? [];
+      if (!hexAddr || !hexPort) continue;
+      // Only include ports bound to wildcard (0.0.0.0 or ::), skip loopback
+      if (hexAddr !== "00000000" && hexAddr !== "00000000000000000000000000000000")
+        continue;
+      ports.add(parseInt(hexPort, 16));
     }
     return [...ports].sort((a, b) => a - b);
   } catch {
