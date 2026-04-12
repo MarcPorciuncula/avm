@@ -70,6 +70,7 @@ export const createCommand = defineCommand({
     console.log(`==> Creating container ${vmName}...`);
     await $`docker run -d ${[
       "--name", vmName,
+      "--hostname", vmName,
       "--label", AVM_LABEL,
       "--network", "host",
       "--privileged",
