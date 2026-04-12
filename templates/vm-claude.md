@@ -38,15 +38,12 @@ Use `dex list`, `dex show`, `dex create`, etc. Do not clone a dex repo.
 
 ## Docker
 
-Docker is available via socket mount (Docker-out-of-Docker). You can
-run `docker build`, `docker run`, etc.
+Docker runs locally inside this container (Docker-in-Docker). Run
+`start-dockerd` to start the daemon — it stays running until the
+container stops. After a container restart, run `start-dockerd` again.
 
-**Bind mounts don't work.** The Docker daemon runs on the host, but
-paths like `/home/agent/work/...` only exist inside this container —
-they don't exist on the host. So `docker run -v /home/agent/...:/app`
-and `docker compose` services with bind mounts will see empty
-directories. Run tools directly (installed natively) instead of via
-Docker containers when they need access to local files.
+Bind mounts and `docker compose` work normally — the daemon is local,
+so paths like `/home/agent/work/...` resolve correctly.
 
 ## Important
 

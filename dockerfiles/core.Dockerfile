@@ -26,7 +26,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1 &
     apt-get install -y -qq nodejs > /dev/null && \
     rm -rf /var/lib/apt/lists/*
 
-# --- Docker CLI (socket is mounted from host; only the client is needed) ---
+# --- Docker Engine (DinD — full daemon + CLI + containerd) ---
 
 RUN curl -fsSL https://get.docker.com | sh > /dev/null 2>&1 && \
     rm -rf /var/lib/apt/lists/*
@@ -36,6 +36,14 @@ RUN curl -fsSL https://get.docker.com | sh > /dev/null 2>&1 && \
 RUN useradd -m -s /bin/bash agent && \
     groupadd -f docker && \
     usermod -aG docker agent
+
+# --- sudo for start-dockerd (agent needs to launch dockerd as root) ---
+
+RUN apt-get update -qq && \
+    apt-get install -y -qq sudo > /dev/null && \
+    rm -rf /var/lib/apt/lists/* && \
+    echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-dockerd.sh' > /etc/sudoers.d/dockerd && \
+    chmod 440 /etc/sudoers.d/dockerd
 
 # --- Claude Code (must run as agent — installs to ~/.claude/) ---
 
@@ -59,6 +67,8 @@ RUN echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc
 USER root
 COPY templates/vm-helpers.sh /opt/avm/helpers.sh
 RUN chmod 644 /opt/avm/helpers.sh
+COPY templates/start-dockerd.sh /opt/avm/start-dockerd.sh
+RUN chmod 755 /opt/avm/start-dockerd.sh
 
 USER agent
 WORKDIR /home/agent

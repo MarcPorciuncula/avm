@@ -73,10 +73,6 @@ export async function applyPostCreationSetup(
   containerName: string,
   config: AvmConfig,
 ): Promise<void> {
-  // --- Fix Docker socket permissions ---
-  // The host socket is typically root:root; the agent needs group access.
-  await $`docker exec -u root ${containerName} chgrp docker /var/run/docker.sock`.nothrow();
-
   // --- Copy .gitconfig ---
   if (existsSync(avmSystemGitConfigFile)) {
     await $`docker cp ${avmSystemGitConfigFile} ${containerName}:/home/agent/.gitconfig`;

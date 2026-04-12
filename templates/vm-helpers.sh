@@ -29,3 +29,8 @@ as_agent() {
 echo_step() {
   echo "==> $1"
 }
+
+# Start the Docker daemon (DinD). Idempotent — safe to call if already running.
+start-dockerd() {
+  sudo /opt/avm/start-dockerd.sh
+}

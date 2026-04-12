@@ -69,9 +69,9 @@ export const createCommand = defineCommand({
       "--name", vmName,
       "--label", AVM_LABEL,
       "--network", "host",
+      "--privileged",
       "--init",
       ...tzArgs,
-      "-v", "/var/run/docker.sock:/var/run/docker.sock",
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 
