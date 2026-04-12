@@ -75,6 +75,7 @@ export const createCommand = defineCommand({
       "--privileged",
       "--init",
       "-v", `${vmName}-docker:/var/lib/docker`,
+      "-e", `AVM_ID=${shortIdOf(vmName)}`,
       ...tzArgs,
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
