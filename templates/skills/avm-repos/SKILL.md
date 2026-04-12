@@ -9,16 +9,21 @@ Clone repos into `~/work/`.
 
 ## Using mirrors
 
-If a mirror exists at `~/mirrors/<name>.git`, use it for faster clones:
+If a mirror exists at `~/mirrors/<name>.git`, use it for faster clones.
+**Get the remote URL from the mirror** — do not guess it:
 
 ```
-git clone --reference ~/mirrors/<name>.git \
-  git@github.com:<owner>/<name>.git \
-  ~/work/<name>
+git -C ~/mirrors/<name>.git remote get-url origin
 ```
 
-If there's no mirror, clone normally. **Never** pass `--dissociate`
-and **never** run `git gc` on mirrors.
+Then clone with `--reference`:
+
+```
+git clone --reference ~/mirrors/<name>.git <url> ~/work/<name>
+```
+
+If there's no mirror, ask the user for the clone URL. **Never** pass
+`--dissociate` and **never** run `git gc` on mirrors.
 
 ## After cloning: `avm-link`
 
