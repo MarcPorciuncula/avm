@@ -6,7 +6,6 @@ import {
   applyPostCreationSetup,
   ensureHostScaffolding,
   getDockerMountArgs,
-  seedInVmClaudeMd,
 } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -49,7 +48,6 @@ export const createCommand = defineCommand({
     }
 
     ensureHostScaffolding();
-    seedInVmClaudeMd();
 
     let config;
     try {

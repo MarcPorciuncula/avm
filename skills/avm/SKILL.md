@@ -115,7 +115,7 @@ Once attached, the user (or Claude inside the container) sees:
 - `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.gitconfig` — credentials and settings
 - `clauded` — alias for `claude --dangerously-skip-permissions`
 - `avm-link` — applies the per-repo symlinks from `~/.avm/config.yaml`
-- Docker socket — `docker build`, `docker run`, etc. work from inside
+- Docker (DinD) — run `start-dockerd` inside the container, then `docker build`, `docker run`, etc. work normally
 
 The container only sees explicitly mounted paths. There is no access to
 the host filesystem beyond what `avm` mounts.

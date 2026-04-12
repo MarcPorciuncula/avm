@@ -70,5 +70,11 @@ RUN chmod 644 /opt/avm/helpers.sh
 COPY templates/start-dockerd.sh /opt/avm/start-dockerd.sh
 RUN chmod 755 /opt/avm/start-dockerd.sh
 
+# --- In-container CLAUDE.md and skills ---
+
+COPY templates/vm-claude.md /home/agent/CLAUDE.md
+RUN chown agent:agent /home/agent/CLAUDE.md
+COPY templates/skills/ /opt/avm/skills/
+
 USER agent
 WORKDIR /home/agent

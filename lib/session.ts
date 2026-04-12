@@ -1,6 +1,5 @@
 import { $, path } from "zx";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   writeFileSync,
@@ -16,7 +15,6 @@ import {
   avmSystemGitConfigFile,
   avmSystemSshDir,
   avmVolumesDir,
-  REPO_ROOT,
 } from "./config.ts";
 import { type AvmConfig, generateAvmLinkScript } from "./config-file.ts";
 
@@ -49,30 +47,25 @@ export function ensureHostScaffolding(): void {
 }
 
 /**
- * Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md` if
- * the destination doesn't exist yet. Once seeded, the user owns the file;
- * the CLI never overwrites it.
- */
-export function seedInVmClaudeMd(): void {
-  const dest = path.join(avmSystemClaudeDir, "CLAUDE.md");
-  if (existsSync(dest)) return;
-  const template = path.join(REPO_ROOT, "templates", "vm-claude.md");
-  if (existsSync(template)) {
-    copyFileSync(template, dest);
-  }
-}
-
-/**
  * Post-creation setup that copies files into a container via `docker cp`
  * and `docker exec`. Called after `docker run` or `docker start`.
  *
- * 1. Copies .gitconfig into the container (skips with warning if missing).
- * 2. Generates and installs the avm-link script.
+ * 1. Symlinks image-shipped skills into ~/.claude/skills/.
+ * 2. Copies .gitconfig into the container (skips with warning if missing).
+ * 3. Generates and installs the avm-link script.
  */
 export async function applyPostCreationSetup(
   containerName: string,
   config: AvmConfig,
 ): Promise<void> {
+  // --- Symlink image-shipped skills into ~/.claude/skills/ ---
+  await $`docker exec ${containerName} bash -c ${
+    "mkdir -p /home/agent/.claude/skills && " +
+    "for d in /opt/avm/skills/*/; do " +
+    'ln -sfn "$d" /home/agent/.claude/skills/$(basename "$d"); ' +
+    "done"
+  }`;
+
   // --- Copy .gitconfig ---
   if (existsSync(avmSystemGitConfigFile)) {
     await $`docker cp ${avmSystemGitConfigFile} ${containerName}:/home/agent/.gitconfig`;
