@@ -6,7 +6,6 @@ import {
   applyPostCreationSetup,
   ensureHostScaffolding,
   getDockerMountArgs,
-  seedInVmClaudeMd,
 } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -49,7 +48,6 @@ export const createCommand = defineCommand({
     }
 
     ensureHostScaffolding();
-    seedInVmClaudeMd();
 
     let config;
     try {
@@ -69,9 +67,10 @@ export const createCommand = defineCommand({
       "--name", vmName,
       "--label", AVM_LABEL,
       "--network", "host",
+      "--privileged",
       "--init",
+      "-v", `${vmName}-docker:/var/lib/docker`,
       ...tzArgs,
-      "-v", "/var/run/docker.sock:/var/run/docker.sock",
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 

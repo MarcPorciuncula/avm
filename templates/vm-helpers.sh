@@ -1,8 +1,9 @@
-# /opt/avm/helpers.sh — sourced by ~/.avm/setup.sh during `avm provision`.
+# /opt/avm/helpers.sh — sourced by the agent's .bashrc and by user
+# setup scripts (~/.avm/setup.sh).
 #
-# The setup script itself runs as root inside the base VM. Use `as_agent`
-# to drop to the agent user for anything that belongs in the agent's home
-# (e.g. `go install`, user-scoped config).
+# Functions defined here are available in every interactive shell.
+# `as_agent` is for setup scripts that run as root and need to drop
+# to the agent user.
 #
 # Keep this file minimal. Anything you add here is effectively public API
 # for user setup scripts and can't be changed without breaking them.
@@ -28,4 +29,9 @@ as_agent() {
 # Print a "==> " heading to match the CLI's own logging.
 echo_step() {
   echo "==> $1"
+}
+
+# Start the Docker daemon (DinD). Idempotent — safe to call if already running.
+start-dockerd() {
+  sudo /opt/avm/start-dockerd.sh
 }

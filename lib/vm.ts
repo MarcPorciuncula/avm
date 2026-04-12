@@ -31,7 +31,7 @@ export async function asAgent(vmName: string, cmd: string): Promise<void> {
 export function attachToVm(vmName: string): number {
   const result = spawnSync(
     "docker",
-    ["exec", "-it", vmName, "bash", "-l"],
+    ["exec", "-it", "-w", "/home/agent/work", vmName, "bash", "-l"],
     { stdio: "inherit" },
   );
   return result.status ?? 1;
