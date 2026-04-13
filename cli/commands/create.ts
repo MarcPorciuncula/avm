@@ -101,6 +101,9 @@ export const createCommand = defineCommand({
 
     await applyPostCreationSetup(vmName, config);
 
+    console.log(`==> Starting sshd in ${vmName}...`);
+    await ensureSshd(vmName, sshPort);
+
     await syncSshConfig();
 
     const state = readState();
@@ -144,8 +147,6 @@ export const createCommand = defineCommand({
     }
 
     if (args.ssh) {
-      console.log(`==> Starting sshd in ${vmName}...`);
-      await ensureSshd(vmName, sshPort);
       console.log(`==> Connecting via SSH...`);
       process.exit(sshToVm(sshPort));
     }

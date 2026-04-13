@@ -90,6 +90,11 @@ export const startCommand = defineCommand({
     // config.yaml changes take effect on resume.
     await applyPostCreationSetup(vmName, config);
 
+    if (vm.sshPort) {
+      console.log(`==> Starting sshd in ${vmName}...`);
+      await ensureSshd(vmName, vm.sshPort);
+    }
+
     console.log();
     console.log("Session ready.");
     console.log();
@@ -111,8 +116,6 @@ export const startCommand = defineCommand({
         );
         process.exit(1);
       }
-      console.log(`==> Starting sshd in ${vmName}...`);
-      await ensureSshd(vmName, vm.sshPort);
       console.log(`==> Connecting via SSH...`);
       process.exit(sshToVm(vm.sshPort));
     }
