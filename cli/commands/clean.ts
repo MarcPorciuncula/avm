@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import { $ } from "zx";
 import { confirm, isCancel, cancel } from "@clack/prompts";
 import { listAvmVms, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
+import { syncSshConfig } from "../../lib/ssh-config.ts";
 
 export const cleanCommand = defineCommand({
   meta: {
@@ -106,5 +107,7 @@ export const cleanCommand = defineCommand({
       await $`docker rm -f ${target.name}`;
       await $`docker volume rm ${target.name}-docker`.nothrow();
     }
+
+    await syncSshConfig();
   },
 });
