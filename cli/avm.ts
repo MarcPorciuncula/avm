@@ -17,6 +17,7 @@ const main = defineCommand({
   },
   subCommands: {
     list: listCommand,
+    ls: listCommand,
     create: createCommand,
     start: startCommand,
     attach: attachCommand,
@@ -25,6 +26,7 @@ const main = defineCommand({
     ssh: sshCommand,
     stop: stopCommand,
     clean: cleanCommand,
+    destroy: cleanCommand,
     provision: provisionCommand,
   },
 });

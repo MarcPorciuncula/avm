@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { confirm, isCancel, cancel } from "@clack/prompts";
-import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
+import { listAvmVms, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
 
 export const cleanCommand = defineCommand({
   meta: {
@@ -13,6 +13,10 @@ export const cleanCommand = defineCommand({
       type: "boolean",
       description: "Clean every avm container.",
     },
+    "all-outdated": {
+      type: "boolean",
+      description: "Clean every outdated avm container.",
+    },
   },
   async run({ args }) {
     const rawIds = ((args as { _?: string[] })._ ?? []).filter(
@@ -22,21 +26,38 @@ export const cleanCommand = defineCommand({
 
     interface Target {
       name: string;
+      status: string;
       /** True when resolved from a prefix (requires confirmation). */
-      isPartial: boolean;
+      needsConfirm: boolean;
     }
 
     let targets: Target[];
     if (args.all) {
-      targets = vms.map((v) => ({ name: v.name, isPartial: false }));
+      targets = vms.map((v) => ({
+        name: v.name,
+        status: v.status,
+        needsConfirm: false,
+      }));
       if (targets.length === 0) {
         console.log("No agent containers to clean.");
+        return;
+      }
+    } else if (args["all-outdated"]) {
+      targets = vms
+        .filter((v) => v.outdated)
+        .map((v) => ({
+          name: v.name,
+          status: v.status,
+          needsConfirm: false,
+        }));
+      if (targets.length === 0) {
+        console.log("No outdated containers to clean.");
         return;
       }
     } else {
       if (rawIds.length === 0) {
         console.error(
-          "Error: provide one or more IDs or use --all.\nUsage: avm clean <id...> | --all",
+          "Error: provide one or more IDs or use --all / --all-outdated.\nUsage: avm clean <id...> | --all | --all-outdated",
         );
         process.exit(1);
       }
@@ -44,7 +65,11 @@ export const cleanCommand = defineCommand({
       for (const id of rawIds) {
         try {
           const { vm, isPartial } = resolveVmByPrefix(id, vms);
-          targets.push({ name: vm.name, isPartial });
+          targets.push({
+            name: vm.name,
+            status: vm.status,
+            needsConfirm: isPartial,
+          });
         } catch (err) {
           console.error(`Error: ${(err as Error).message}`);
           process.exit(1);
@@ -53,7 +78,7 @@ export const cleanCommand = defineCommand({
     }
 
     for (const target of targets) {
-      if (target.isPartial) {
+      if (target.needsConfirm) {
         const ok = await confirm({
           message: `Delete ${target.name}?`,
           initialValue: false,
@@ -63,6 +88,18 @@ export const cleanCommand = defineCommand({
           continue;
         }
       }
+
+      if (target.status === "running") {
+        const ok = await confirm({
+          message: `${target.name} is still running. Stop and delete it?`,
+          initialValue: false,
+        });
+        if (isCancel(ok) || !ok) {
+          cancel(`Skipped ${target.name}.`);
+          continue;
+        }
+      }
+
       console.log(`==> Stopping ${target.name}...`);
       await $`docker stop ${target.name}`.nothrow();
       console.log(`==> Deleting ${target.name}...`);
