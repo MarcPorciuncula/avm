@@ -3,6 +3,7 @@ import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
+import { readState } from "../../lib/state.ts";
 import {
   attachToVm,
   ensureSshd,
@@ -95,11 +96,17 @@ export const startCommand = defineCommand({
       await ensureSshd(vmName, vm.sshPort);
     }
 
+    const sshInstalled =
+      vm.sshPort != null &&
+      readState().sshConfig?.installPrompt === "installed";
+
     console.log();
     console.log("Session ready.");
     console.log();
     console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
-    console.log(`  SSH:    avm ssh ${shortIdOf(vmName)}`);
+    console.log(
+      `  SSH:    ${sshInstalled ? `ssh ${vmName}` : `avm ssh ${shortIdOf(vmName)}`}`,
+    );
     console.log();
 
     if (args.editor) {

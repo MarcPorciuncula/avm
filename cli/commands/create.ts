@@ -134,11 +134,16 @@ export const createCommand = defineCommand({
       }
     }
 
+    const sshInstalled =
+      readState().sshConfig?.installPrompt === "installed";
+
     console.log();
     console.log("Session ready.");
     console.log();
     console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
-    console.log(`  SSH:    avm ssh ${shortIdOf(vmName)}`);
+    console.log(
+      `  SSH:    ${sshInstalled ? `ssh ${vmName}` : `avm ssh ${shortIdOf(vmName)}`}`,
+    );
     console.log();
 
     if (args.editor) {
