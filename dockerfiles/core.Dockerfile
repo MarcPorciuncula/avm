@@ -14,6 +14,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
       zip \
       tar \
       openssh-client \
+      openssh-server \
       ca-certificates \
       gnupg \
       pkg-config \
@@ -43,7 +44,8 @@ RUN apt-get update -qq && \
     apt-get install -y -qq sudo > /dev/null && \
     rm -rf /var/lib/apt/lists/* && \
     echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-dockerd.sh' > /etc/sudoers.d/dockerd && \
-    chmod 440 /etc/sudoers.d/dockerd
+    echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-sshd.sh' > /etc/sudoers.d/sshd && \
+    chmod 440 /etc/sudoers.d/dockerd /etc/sudoers.d/sshd
 
 # --- Claude Code (must run as agent — installs to ~/.claude/) ---
 
@@ -70,6 +72,8 @@ COPY templates/vm-helpers.sh /opt/avm/helpers.sh
 RUN chmod 644 /opt/avm/helpers.sh
 COPY templates/start-dockerd.sh /opt/avm/start-dockerd.sh
 RUN chmod 755 /opt/avm/start-dockerd.sh
+COPY templates/start-sshd.sh /opt/avm/start-sshd.sh
+RUN chmod 755 /opt/avm/start-sshd.sh
 
 # --- In-container CLAUDE.md and skills ---
 

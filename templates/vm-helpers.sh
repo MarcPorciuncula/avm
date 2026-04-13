@@ -35,3 +35,8 @@ echo_step() {
 start-dockerd() {
   sudo /opt/avm/start-dockerd.sh
 }
+
+# Start sshd. Reads port from $AVM_SSH_PORT. Idempotent.
+start-sshd() {
+  sudo AVM_SSH_PORT="${AVM_SSH_PORT:-}" /opt/avm/start-sshd.sh
+}

@@ -174,10 +174,17 @@ the container.
 ```
 avm list                  # List all session containers
 avm create [name]         # Create and start a new container
-  --attach                # Attach to the container immediately
+  --attach                # Attach to the container immediately (docker exec)
+  --ssh                   # Attach via SSH instead of docker exec
 avm start <id>            # Resume a stopped container
-  --attach                # Attach to the container immediately
+  --attach                # Attach to the container immediately (docker exec)
+  --ssh                   # Attach via SSH instead of docker exec
 avm attach [id]           # Attach to a running container (interactive picker if no id)
+avm ssh <id>              # Connect to a container over SSH (starts sshd lazily)
+  --print-command         # Print the SSH command instead of connecting
+  --print-config          # Print an SSH config block for ~/.ssh/config
+avm exec <id> <cmd...>    # Run a command inside a container (non-interactive)
+  --root                  # Run as root instead of agent
 avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more containers

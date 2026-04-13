@@ -1,7 +1,7 @@
 import { $ } from "zx";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { AVM_LABEL } from "./config.ts";
+import { AVM_LABEL, SSH_PORT_LABEL } from "./config.ts";
 
 export interface VmInfo {
   /** Short ID — the suffix after `avm-`. */
@@ -14,11 +14,14 @@ export interface VmInfo {
   ports: number[];
   /** True if the container's image no longer matches `avm:latest`. */
   outdated: boolean;
+  /** SSH port assigned to this container (from label), or null if not set. */
+  sshPort: number | null;
 }
 
 interface DockerPsEntry {
   Names: string;
   State: string;
+  Labels: string;
 }
 
 /** Pipe `cmd` to `bash -l` running as root in the given container. */
@@ -136,12 +139,21 @@ export async function listAvmVms(): Promise<VmInfo[]> {
   const vms = lines.map((line) => {
     const entry = JSON.parse(line) as DockerPsEntry;
     const name = entry.Names.replace(/^\//, "");
+    // Parse SSH port from labels string (comma-separated "key=value" pairs)
+    let sshPort: number | null = null;
+    const portLabel = entry.Labels?.split(",")
+      .find((l) => l.startsWith(`${SSH_PORT_LABEL}=`));
+    if (portLabel) {
+      const parsed = parseInt(portLabel.split("=")[1]!, 10);
+      if (!isNaN(parsed)) sshPort = parsed;
+    }
     return {
       id: name.startsWith("avm-") ? name.slice(4) : name,
       name,
       status: entry.State === "exited" ? "stopped" : entry.State,
       ports: [] as number[],
       outdated: false,
+      sshPort,
     };
   });
 
@@ -205,4 +217,33 @@ export function resolveVmByPrefix(
     );
   }
   return { vm: matches[0]!, isPartial: true };
+}
+
+/**
+ * Start sshd inside a container if not already running.
+ * Uses docker exec to invoke the start-sshd helper.
+ */
+export async function ensureSshd(vmName: string, sshPort: number): Promise<void> {
+  await $`docker exec -u root -e AVM_SSH_PORT=${sshPort} ${vmName} /opt/avm/start-sshd.sh`;
+}
+
+/**
+ * SSH into a container. Starts sshd first, then execs ssh.
+ * Returns the exit code of the ssh process.
+ */
+export function sshToVm(sshPort: number): number {
+  const result = spawnSync(
+    "ssh",
+    [
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-o", "LogLevel=ERROR",
+      "-p", String(sshPort),
+      "-t",
+      "agent@localhost",
+      "cd ~/work && exec bash -l",
+    ],
+    { stdio: "inherit" },
+  );
+  return result.status ?? 1;
 }

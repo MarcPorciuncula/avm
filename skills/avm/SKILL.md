@@ -26,10 +26,17 @@ Invoke this skill when the user says things like:
 ```
 avm list                  # Show all session containers and their status
 avm create [name]         # Create and start a new container
-  --attach                # Attach to the container immediately
+  --attach                # Attach to the container immediately (docker exec)
+  --ssh                   # Attach via SSH instead of docker exec
 avm start <id>            # Resume a stopped container (required id; prefix match)
-  --attach                # Attach to the container immediately
+  --attach                # Attach to the container immediately (docker exec)
+  --ssh                   # Attach via SSH instead of docker exec
 avm attach [id]           # Attach to a running container; interactive picker if no id
+avm ssh <id>              # Connect to a running container over SSH
+  --print-command         # Print the SSH command instead of connecting
+  --print-config          # Print an SSH config block for ~/.ssh/config
+avm exec <id> <cmd...>    # Run a command inside a container (non-interactive)
+  --root                  # Run as root instead of agent
 avm editor [id]           # Open a container in VS Code / Cursor (auto-detects, saves preference)
 avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
@@ -105,6 +112,23 @@ avm clean <id>        # stop and delete
 # or
 avm stop <id>         # stop but keep (resumable via `avm start <id>`)
 ```
+
+## SSH vs Attach
+
+There are two ways to connect to a container:
+
+- **`avm attach`** — uses `docker exec`. Always works, no setup needed.
+  This is the default and the reliable fallback.
+- **`avm ssh`** — connects over SSH. Better for third-party tools (Warp,
+  VS Code remote-SSH, port forwarding, scp, SSH jump chains). sshd is
+  started lazily on first use — no daemon runs by default.
+
+Use `avm ssh --print-command <id>` to get the raw SSH command for
+pasting into other tools, or `avm ssh --print-config <id>` to get an
+SSH config block.
+
+Containers created before SSH support was added won't have an SSH port
+assigned. Recreate them with `avm create` to get one.
 
 ## Inside the Container
 
