@@ -1,5 +1,12 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  existsSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import os from "node:os";
 import { avmSshConfigFile } from "./config.ts";
 import { listAvmVms, type VmInfo } from "./vm.ts";
 
@@ -34,4 +41,90 @@ export async function syncSshConfig(): Promise<void> {
   const tmp = `${avmSshConfigFile}.tmp`;
   writeFileSync(tmp, contents, { mode: 0o644 });
   renameSync(tmp, avmSshConfigFile);
+}
+
+const MARKER_START = "# >>> avm managed >>>";
+const MARKER_END = "# <<< avm managed <<<";
+const INCLUDE_LINE = "Include ~/.avm/ssh_config";
+
+/** Absolute path to the user's SSH config file. */
+function userSshConfigPath(): string {
+  return join(os.homedir(), ".ssh", "config");
+}
+
+/** Build the marker block to prepend. */
+function markerBlock(): string {
+  return `${MARKER_START}\n${INCLUDE_LINE}\n${MARKER_END}\n`;
+}
+
+/** True if the file already has our marker block. */
+function hasMarkerBlock(text: string): boolean {
+  return text.includes(MARKER_START) && text.includes(MARKER_END);
+}
+
+/** True if the file has a bare Include line the user added themselves. */
+function hasBareInclude(text: string): boolean {
+  if (hasMarkerBlock(text)) return false;
+  return text
+    .split("\n")
+    .some((line) => line.trim() === INCLUDE_LINE);
+}
+
+/** Read the user's SSH config (empty string if missing). */
+function readUserSshConfig(): string {
+  const p = userSshConfigPath();
+  return existsSync(p) ? readFileSync(p, "utf8") : "";
+}
+
+/** Write the user's SSH config atomically, creating `~/.ssh` if needed. */
+function writeUserSshConfig(contents: string): void {
+  const p = userSshConfigPath();
+  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
+  const tmp = `${p}.tmp`;
+  writeFileSync(tmp, contents, { mode: 0o600 });
+  renameSync(tmp, p);
+}
+
+export interface InstallResult {
+  /** "installed" → we wrote the marker block. "already" → a marker block or user-added Include was already present. */
+  status: "installed" | "already";
+}
+
+/**
+ * Ensure `~/.ssh/config` includes the avm-managed file. Idempotent.
+ * Also ensures `~/.avm/ssh_config` exists by calling `syncSshConfig()`.
+ */
+export async function installInclude(): Promise<InstallResult> {
+  await syncSshConfig();
+  const current = readUserSshConfig();
+  if (hasMarkerBlock(current)) return { status: "already" };
+  if (hasBareInclude(current)) return { status: "already" };
+  const next = markerBlock() + (current.length > 0 ? "\n" + current : "");
+  writeUserSshConfig(next);
+  return { status: "installed" };
+}
+
+export interface UninstallResult {
+  status: "uninstalled" | "not-installed";
+}
+
+/**
+ * Remove avm's marker block from `~/.ssh/config`. Leaves `~/.avm/ssh_config`
+ * in place and never touches Include lines outside the marker block.
+ */
+export async function uninstallInclude(): Promise<UninstallResult> {
+  const current = readUserSshConfig();
+  if (!hasMarkerBlock(current)) return { status: "not-installed" };
+  const lines = current.split("\n");
+  const start = lines.findIndex((l) => l.trim() === MARKER_START);
+  const end = lines.findIndex((l) => l.trim() === MARKER_END);
+  if (start === -1 || end === -1 || end < start) {
+    return { status: "not-installed" };
+  }
+  // Drop marker block and a single trailing blank line if present.
+  let removeEnd = end + 1;
+  if (lines[removeEnd] === "") removeEnd += 1;
+  lines.splice(start, removeEnd - start);
+  writeUserSshConfig(lines.join("\n"));
+  return { status: "uninstalled" };
 }
