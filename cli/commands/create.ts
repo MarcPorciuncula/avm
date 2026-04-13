@@ -1,8 +1,11 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
+import { select, isCancel } from "@clack/prompts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import { USER_IMAGE, AVM_LABEL, SSH_PORT_LABEL, getHostTimezone, sshPortForId } from "../../lib/config.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
+import { installInclude, syncSshConfig } from "../../lib/ssh-config.ts";
+import { readState, updateState } from "../../lib/state.ts";
 import {
   applyPostCreationSetup,
   ensureHostScaffolding,
@@ -97,6 +100,36 @@ export const createCommand = defineCommand({
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 
     await applyPostCreationSetup(vmName, config);
+
+    await syncSshConfig();
+
+    const state = readState();
+    if (state.sshConfig?.installPrompt === undefined) {
+      const choice = await select({
+        message:
+          "Enable `ssh avm-<id>` shortcut by adding an Include to ~/.ssh/config?",
+        options: [
+          { value: "yes", label: "Yes, install it" },
+          { value: "later", label: "Not now (ask again next time)" },
+          { value: "never", label: "No, don't ask again" },
+        ],
+        initialValue: "yes",
+      });
+      if (!isCancel(choice)) {
+        if (choice === "yes") {
+          const result = await installInclude();
+          updateState({ sshConfig: { installPrompt: "installed" } });
+          if (result.status === "installed") {
+            console.log("Installed Include in ~/.ssh/config.");
+          } else {
+            console.log("~/.ssh/config already includes avm's config.");
+          }
+        } else if (choice === "never") {
+          updateState({ sshConfig: { installPrompt: "declined" } });
+        }
+        // "later" → no state change
+      }
+    }
 
     console.log();
     console.log("Session ready.");
