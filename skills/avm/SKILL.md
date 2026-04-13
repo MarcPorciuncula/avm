@@ -1,6 +1,6 @@
 ---
 name: avm
-description: Use when the user asks to spin up, attach to, list, or clean up avm sandbox containers — the CLI for managing Docker-based Claude Code sandboxes.
+description: Use when the user asks to spin up, attach to, list, or clean up avm sandbox containers, or configure avm (Dockerfile, volumes, caches, config.yaml, mirrors, credentials) — the CLI for managing Docker-based Claude Code sandboxes.
 ---
 
 # Using `avm`
