@@ -42,6 +42,9 @@ avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more session containers
   --all                   # Clean every session container
+avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
+avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
+avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images (core + user)
 ```
 
@@ -126,6 +129,12 @@ There are two ways to connect to a container:
 Use `avm ssh --print-command <id>` to get the raw SSH command for
 pasting into other tools, or `avm ssh --print-config <id>` to get an
 SSH config block.
+
+Running `avm ssh-config install` (or accepting the prompt on first
+`avm create`) wires an `Include ~/.avm/ssh_config` line into the user's
+`~/.ssh/config`, so `ssh avm-<id>` works from any terminal without
+extra flags. Useful for tools that key off the literal `ssh` command
+(e.g. Warp's terminal "warpify" detection, Cursor remote-SSH).
 
 Containers created before SSH support was added won't have an SSH port
 assigned. Recreate them with `avm create` to get one.

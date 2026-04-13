@@ -3,6 +3,7 @@ import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
+import { readState } from "../../lib/state.ts";
 import {
   attachToVm,
   ensureSshd,
@@ -90,11 +91,22 @@ export const startCommand = defineCommand({
     // config.yaml changes take effect on resume.
     await applyPostCreationSetup(vmName, config);
 
+    if (vm.sshPort) {
+      console.log(`==> Starting sshd in ${vmName}...`);
+      await ensureSshd(vmName, vm.sshPort);
+    }
+
+    const sshInstalled =
+      vm.sshPort != null &&
+      readState().sshConfig?.installPrompt === "installed";
+
     console.log();
     console.log("Session ready.");
     console.log();
     console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
-    console.log(`  SSH:    avm ssh ${shortIdOf(vmName)}`);
+    console.log(
+      `  SSH:    ${sshInstalled ? `ssh ${vmName}` : `avm ssh ${shortIdOf(vmName)}`}`,
+    );
     console.log();
 
     if (args.editor) {
@@ -111,8 +123,6 @@ export const startCommand = defineCommand({
         );
         process.exit(1);
       }
-      console.log(`==> Starting sshd in ${vmName}...`);
-      await ensureSshd(vmName, vm.sshPort);
       console.log(`==> Connecting via SSH...`);
       process.exit(sshToVm(vm.sshPort));
     }
