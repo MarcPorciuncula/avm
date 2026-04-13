@@ -1,6 +1,8 @@
 import { $ } from "zx";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { createConnection } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
 import { AVM_LABEL, SSH_PORT_LABEL } from "./config.ts";
 
 export interface VmInfo {
@@ -220,11 +222,43 @@ export function resolveVmByPrefix(
 }
 
 /**
- * Start sshd inside a container if not already running.
- * Uses docker exec to invoke the start-sshd helper.
+ * Try to open a TCP connection to localhost:port. Resolves true on connect,
+ * false on any error (refused, reset, timeout).
+ */
+function canConnect(port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.once("timeout", () => done(false));
+  });
+}
+
+/**
+ * Start sshd inside a container if not already running, then wait until the
+ * port is reachable from the host.
+ *
+ * sshd without -D daemonizes before the listen socket is bound, and under
+ * OrbStack there is additional propagation delay from the container's
+ * network namespace to the host — so start-sshd.sh returning 0 doesn't mean
+ * an ssh client on the host can connect yet. Poll until it can.
  */
 export async function ensureSshd(vmName: string, sshPort: number): Promise<void> {
   await $`docker exec -u root -e AVM_SSH_PORT=${sshPort} ${vmName} /opt/avm/start-sshd.sh`;
+
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (await canConnect(sshPort, 500)) return;
+    await delay(100);
+  }
+  throw new Error(
+    `sshd started in ${vmName} but port ${sshPort} is not reachable on localhost after 5s.`,
+  );
 }
 
 /**
