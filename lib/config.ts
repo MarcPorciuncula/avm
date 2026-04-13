@@ -38,6 +38,8 @@ export const avmVolumesDir = path.join(AVM_HOME, "volumes");
 export const avmFilesDir = path.join(AVM_HOME, "files");
 
 export const avmConfigFile = path.join(AVM_HOME, "config.yaml");
+export const avmSshConfigFile = path.join(AVM_HOME, "ssh_config");
+export const avmStateFile = path.join(AVM_HOME, "state.json");
 
 /**
  * Detect the host IANA timezone (e.g. "Australia/Sydney") by reading the
