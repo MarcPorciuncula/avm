@@ -6,6 +6,7 @@ import { stopCommand } from "./commands/stop.ts";
 import { cleanCommand } from "./commands/clean.ts";
 import { attachCommand } from "./commands/attach.ts";
 import { editorCommand } from "./commands/editor.ts";
+import { execCommand } from "./commands/exec.ts";
 import { provisionCommand } from "./commands/provision.ts";
 
 const main = defineCommand({
@@ -19,6 +20,7 @@ const main = defineCommand({
     start: startCommand,
     attach: attachCommand,
     editor: editorCommand,
+    exec: execCommand,
     stop: stopCommand,
     clean: cleanCommand,
     provision: provisionCommand,
