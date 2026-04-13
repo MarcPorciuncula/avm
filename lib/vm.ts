@@ -239,7 +239,9 @@ export function sshToVm(sshPort: number): number {
       "-o", "UserKnownHostsFile=/dev/null",
       "-o", "LogLevel=ERROR",
       "-p", String(sshPort),
+      "-t",
       "agent@localhost",
+      "cd ~/work && exec bash -l",
     ],
     { stdio: "inherit" },
   );
