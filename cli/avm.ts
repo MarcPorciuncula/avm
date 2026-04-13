@@ -7,6 +7,7 @@ import { cleanCommand } from "./commands/clean.ts";
 import { attachCommand } from "./commands/attach.ts";
 import { editorCommand } from "./commands/editor.ts";
 import { execCommand } from "./commands/exec.ts";
+import { sshCommand } from "./commands/ssh.ts";
 import { provisionCommand } from "./commands/provision.ts";
 
 const main = defineCommand({
@@ -21,6 +22,7 @@ const main = defineCommand({
     attach: attachCommand,
     editor: editorCommand,
     exec: execCommand,
+    ssh: sshCommand,
     stop: stopCommand,
     clean: cleanCommand,
     provision: provisionCommand,

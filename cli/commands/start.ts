@@ -5,9 +5,11 @@ import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
 import {
   attachToVm,
+  ensureSshd,
   listAvmVms,
   resolveVmByPrefix,
   shortIdOf,
+  sshToVm,
 } from "../../lib/vm.ts";
 
 export const startCommand = defineCommand({
@@ -29,8 +31,17 @@ export const startCommand = defineCommand({
       type: "boolean",
       description: "After setup, open the container in your editor.",
     },
+    ssh: {
+      type: "boolean",
+      description: "After setup, connect via SSH instead of docker exec.",
+    },
   },
   async run({ args }) {
+    if (args.attach && args.ssh) {
+      console.error("Error: --attach and --ssh are mutually exclusive.");
+      process.exit(1);
+    }
+
     if (!args.id) {
       console.error(
         "Error: avm start requires a container id. Use 'avm create' to start a new session.",
@@ -40,10 +51,11 @@ export const startCommand = defineCommand({
 
     const vms = await listAvmVms();
 
+    let vm: (typeof vms)[number];
     let vmName: string;
     let vmStatus: string;
     try {
-      const { vm } = resolveVmByPrefix(args.id, vms);
+      vm = resolveVmByPrefix(args.id, vms).vm;
       vmName = vm.name;
       vmStatus = vm.status;
     } catch (err) {
@@ -82,11 +94,27 @@ export const startCommand = defineCommand({
     console.log("Session ready.");
     console.log();
     console.log(`  Attach: avm attach ${shortIdOf(vmName)}`);
+    console.log(`  SSH:    avm ssh ${shortIdOf(vmName)}`);
     console.log();
 
     if (args.editor) {
       const cli = await resolveEditorCli(config);
       if (cli) openInEditor(cli, vmName);
+    }
+
+    if (args.ssh) {
+      if (!vm.sshPort) {
+        console.error(
+          `Error: Container ${vmName} has no SSH port assigned. ` +
+            `It was created before SSH support was added. ` +
+            `Recreate it with 'avm create' to get an SSH port.`,
+        );
+        process.exit(1);
+      }
+      console.log(`==> Starting sshd in ${vmName}...`);
+      await ensureSshd(vmName, vm.sshPort);
+      console.log(`==> Connecting via SSH...`);
+      process.exit(sshToVm(vm.sshPort));
     }
 
     if (args.attach) {
