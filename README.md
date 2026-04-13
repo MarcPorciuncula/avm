@@ -189,6 +189,9 @@ avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more containers
   --all                   # Clean every session container
+avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
+avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
+avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images
 ```
 
@@ -201,6 +204,12 @@ Inside every container, `clauded` is an alias for
 `claude --dangerously-skip-permissions`, and `avm-link` applies the
 per-repo symlinks declared in `~/.avm/config.yaml`.
 
+Run `avm ssh-config install` (or accept the prompt on your first
+`avm create`) to wire an `Include ~/.avm/ssh_config` line into your
+`~/.ssh/config`. After that, `ssh avm-<id>` works from any terminal
+without flags. Requires OpenSSH 7.3+ (2016), which any modern macOS
+or Linux ships.
+
 ## Host Data Layout
 
 Everything under `~/.avm/` is user-owned local state. Nothing in the
@@ -212,6 +221,8 @@ which ship as part of the CLI.
 ├── config.yaml           # user-edited: volumes + per-repo config (optional)
 ├── Dockerfile            # user-written: layers toolchain on avm-core (required for `avm provision`)
 ├── build-context/        # Docker build context for ~/.avm/Dockerfile (COPY sources go here)
+├── ssh_config            # managed by `avm ssh-config`; included from ~/.ssh/config when installed
+├── state.json            # avm CLI preferences (e.g. remembered install-prompt decision)
 ├── system/               # fixed layout; mounted into every session container
 │   ├── credentials/
 │   │   ├── ssh/          # → ~/.ssh in container (bind mount)
