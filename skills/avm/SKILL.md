@@ -161,6 +161,72 @@ Don't create `~/.avm/` directories the user won't populate. Empty
 scaffolding clutters their home; `avm create` creates the pieces it
 needs on demand (`ensureHostScaffolding` in `lib/session.ts`).
 
+## Configuring volumes (caches and persistent data)
+
+Volumes in `~/.avm/config.yaml` are **Docker bind mounts**. At container
+start, each volume replaces the directory at the target path with the
+contents of the host directory. This means **a volume masks whatever the
+image had at that path** — including toolchain binaries installed during
+`docker build`.
+
+### The masking problem
+
+If the Dockerfile installs Rust (`rustup`, `cargo`) into `~/.cargo/`,
+and `config.yaml` declares `cargo:~/.cargo`, the bind mount replaces the
+entire `~/.cargo` directory with an empty host folder. The toolchain
+binaries disappear at runtime even though they were installed at build
+time.
+
+### The fix: mount cache subdirectories, not toolchain roots
+
+Only mount the directories that hold downloaded/cached artifacts — not
+the directory that contains the toolchain binaries.
+
+| Toolchain | Wrong (masks binaries) | Right (caches only) |
+|-----------|------------------------|---------------------|
+| Rust | `cargo:~/.cargo` | `cargo-registry:~/.cargo/registry` |
+| Go | `go:~/go` | `go-build:~/.cache/go-build` |
+| pnpm | `pnpm:~/.local/share/pnpm` | `pnpm-store:~/.local/share/pnpm/store` |
+
+Example `config.yaml` volumes section:
+
+```yaml
+volumes:
+  - pnpm-store:~/.local/share/pnpm/store
+  - go-build:~/.cache/go-build
+  - cargo-registry:~/.cargo/registry
+```
+
+Each source (left of `:`) is a directory name under `~/.avm/volumes/`.
+Each target (right of `:`) is relative to `/home/agent/` (prefix with
+`~/` for clarity, or use an absolute path starting with `/`). Create the
+host directories before first use:
+
+```bash
+mkdir -p ~/.avm/volumes/pnpm-store ~/.avm/volumes/go-build ~/.avm/volumes/cargo-registry
+```
+
+### Diagnosing "tool disappeared after container start"
+
+If a command works during `docker build` but is missing at runtime:
+
+1. Check if a volume in `config.yaml` targets a parent of the install
+   path.
+2. Fix by narrowing the volume target to just the cache subdirectory.
+3. Run `avm provision` to rebuild (usually not needed — the fix is in
+   `config.yaml`), then `avm create` a new container.
+
+### How volumes relate to the Dockerfile
+
+- **Dockerfile** (`~/.avm/Dockerfile`): installs toolchains and binaries
+  at build time. These live in the image layers.
+- **Volumes** (`config.yaml`): persist caches across container
+  stop/start/recreate cycles. They overlay specific directories at
+  runtime.
+
+They are complementary: the Dockerfile provides the tools, volumes keep
+the caches warm. The volume must never shadow the tool install.
+
 ## Things NOT to do
 
 - **Don't create containers by calling `docker` directly.** Always go
