@@ -52,9 +52,10 @@ RUN apt-get update -qq && \
 USER agent
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# --- Git defaults ---
-RUN git config --global init.defaultBranch main && \
-    git config --global pull.rebase true
+# --- Git defaults (use XDG path so ~/.gitconfig doesn't shadow bind mounts) ---
+RUN mkdir -p ~/.config/git && \
+    git config --file ~/.config/git/config init.defaultBranch main && \
+    git config --file ~/.config/git/config pull.rebase true
 
 # --- Standard directories ---
 
