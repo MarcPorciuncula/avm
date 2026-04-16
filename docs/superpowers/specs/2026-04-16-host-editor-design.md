@@ -28,7 +28,7 @@ acting on the user's instruction, to *request* the editor open.
 - Per-container identity: the daemon, not the caller, determines which
   remote SSH target to use. A container cannot open files "as" another
   container.
-- Reuse the host daemon, shim binary, proto surface, auth, and
+- Reuse the host daemon, avm-bridge, proto surface, auth, and
   versioned API delivered by the host-services spec. This is a new
   RPC, not a new component.
 
@@ -51,7 +51,7 @@ acting on the user's instruction, to *request* the editor open.
 This spec assumes the host-services infrastructure is already in place:
 
 - `avm daemon` running (launchd agent or lazy-spawned).
-- `avm-bridge` shim installed in every container.
+- `avm-bridge` installed in every container.
 - `$AVM_HOST_PORT`, `$AVM_HOST_TOKEN`, `$AVM_CONTAINER_NAME` exported
   into containers by `avm create`.
 - Connect auth interceptor already attaches `container_name` to
@@ -60,7 +60,7 @@ This spec assumes the host-services infrastructure is already in place:
   SSH host on the machine).
 
 The editor feature adds nothing to container creation — it only adds a
-new RPC, a new shim subcommand, and a new daemon handler.
+new RPC, a new `avm-bridge` subcommand, and a new daemon handler.
 
 ## RPC
 
@@ -93,8 +93,8 @@ message OpenFileResponse {
 
 Semantics:
 
-- `path` must be absolute. Relative paths are rejected at the shim;
-  the shim resolves them against `$PWD` before sending. Rationale:
+- `path` must be absolute. Relative paths are resolved by
+  `avm-bridge` against `$PWD` before sending. Rationale:
   the daemon shouldn't guess which working directory the caller
   intended.
 - `line` / `column` map to the editor's `--goto` / `-g` convention
@@ -142,7 +142,7 @@ avm-bridge editor open <path> [--line <n>] [--column <n>] [--editor cursor|code]
 
 Behavior:
 
-- Resolve `<path>` to an absolute path using the shim's CWD. Pass it
+- Resolve `<path>` to an absolute path using the current CWD. Pass it
   through unchanged if already absolute.
 - Send `OpenFile` with the resolved path + optional line/column.
 - Print a concise one-line confirmation on success (e.g.
@@ -187,7 +187,7 @@ No new top-level keys. Reuses the existing `editor` field in
 editor: cursor    # or "code"
 ```
 
-If the field is unset and the shim omits `--editor`, the RPC returns
+If the field is unset and `avm-bridge` omits `--editor`, the RPC returns
 `FailedPrecondition` with "configure `editor:` in ~/.avm/config.yaml
 or pass --editor."
 
@@ -213,7 +213,7 @@ env vars already set by the host-services spec are sufficient.
   accept `--goto <file>:<line>:<col>`. We'll use that uniformly. If a
   future editor doesn't, the per-editor argv composition will move
   into a small strategy table inside `lib/daemon/editor.ts`.
-- **Tilde expansion.** The shim resolves `~` relative to the container
+- **Tilde expansion.** `avm-bridge` resolves `~` relative to the container
   user's home before sending. The daemon does not expand `~` — all
   paths arriving at the daemon are already absolute.
 - **Already-open windows.** Cursor/VS Code deduplicate by remote +

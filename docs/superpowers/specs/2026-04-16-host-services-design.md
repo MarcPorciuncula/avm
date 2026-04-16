@@ -57,7 +57,7 @@ containers reach `localhost` on the host directly. The gap is
   breakage.
 - No Docker Compose support. `kind: docker` controls a pre-existing
   named container; creation is still the user's responsibility.
-- No sibling RPC surfaces in this spec. The same daemon + shim + auth
+- No sibling RPC surfaces in this spec. The same daemon + bridge + auth
   will host an editor-invocation RPC (`OpenInEditor`, see the sibling
   spec `2026-04-16-host-editor-design.md`) and, later, notifications
   and agent oversight. This spec delivers the infrastructure; siblings
@@ -453,7 +453,7 @@ server in the foreground — this is what launchd invokes.
 Additions to `applyPostCreationSetup` in `lib/session.ts` and the
 `docker run` arguments built by `avm create`:
 
-1. **Mount the shim.** Add a bind-mount entry in `getDockerMountArgs`
+1. **Mount avm-bridge.** Add a bind-mount entry in `getDockerMountArgs`
    for `<repo>/dist/avm-bridge.mjs` → `/usr/local/bin/avm-bridge`. Since
    the file has a `#!/usr/bin/env node` shebang and executable
    permission, it runs as a command.
@@ -468,7 +468,7 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
    default 6970). Existing containers don't pick up a port change
    until the next `avm create`; this is fine, ports rarely change.
 4. **Export `AVM_CONTAINER_NAME`.** Pass `-e AVM_CONTAINER_NAME=<name>`
-   so the shim can send the container's identity in future RPCs
+   so avm-bridge can send the container's identity in future RPCs
    (editor, notifications). Not used by services, but cheap to wire
    in now for consistency — the daemon authoritatively resolves
    identity from the token, so this is advisory only.
@@ -501,7 +501,7 @@ avm-bridge service stop   <name>
 
 Output is human-readable by default; `--json` dumps the raw response.
 Exit code 0 on success, non-zero on RPC failure (network error,
-`last_error` populated, etc.). The shim constructs its target URL from
+`last_error` populated, etc.). avm-bridge constructs its target URL from
 `$AVM_HOST_PORT` — no flags, no config file inside the container.
 
 ### Generated agent guidance
