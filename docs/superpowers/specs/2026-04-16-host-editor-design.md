@@ -22,7 +22,7 @@ acting on the user's instruction, to *request* the editor open.
 
 ## Goals
 
-- Inner-container action: `avm-host editor open <path>` (with optional
+- Inner-container action: `avm-bridge editor open <path>` (with optional
   line/column) triggers `cursor --remote ssh-remote+avm-<id> <path>`
   (or the `code` equivalent) on the host.
 - Per-container identity: the daemon, not the caller, determines which
@@ -51,7 +51,7 @@ acting on the user's instruction, to *request* the editor open.
 This spec assumes the host-services infrastructure is already in place:
 
 - `avm daemon` running (launchd agent or lazy-spawned).
-- `avm-host` shim installed in every container.
+- `avm-bridge` shim installed in every container.
 - `$AVM_HOST_PORT`, `$AVM_HOST_TOKEN`, `$AVM_CONTAINER_NAME` exported
   into containers by `avm create`.
 - Connect auth interceptor already attaches `container_name` to
@@ -131,12 +131,12 @@ been run — it assumes the user has done so and the editor's remote-SSH
 extension is able to resolve `avm-<id>`. If it hasn't, the editor
 itself surfaces the error to the user, which is the right UX.
 
-## Shim (`avm-host`)
+## Shim (`avm-bridge`)
 
 New subcommand tree:
 
 ```
-avm-host editor open <path> [--line <n>] [--column <n>] [--editor cursor|code]
+avm-bridge editor open <path> [--line <n>] [--column <n>] [--editor cursor|code]
 ```
 
 Behavior:
@@ -150,7 +150,7 @@ Behavior:
   errors (missing editor binary, unconfigured editor) print the
   daemon's message verbatim so the user sees the actionable remediation.
 
-Shorthand: `avm-host open <path>` could alias `editor open`. Not in v1;
+Shorthand: `avm-bridge open <path>` could alias `editor open`. Not in v1;
 keep the tree explicit.
 
 ## Agent awareness
@@ -162,12 +162,12 @@ the host-services spec with a second section:
 ## Opening files on the host
 
 When the user asks you to open a file in their editor, use
-`avm-host editor open`. The daemon connects the editor to this
+`avm-bridge editor open`. The daemon connects the editor to this
 container via remote SSH — you do not need to configure anything.
 
-    avm-host editor open /home/agent/work/my-repo/src/foo.ts
-    avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42
-    avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42 --column 10
+    avm-bridge editor open /home/agent/work/my-repo/src/foo.ts
+    avm-bridge editor open /home/agent/work/my-repo/src/foo.ts --line 42
+    avm-bridge editor open /home/agent/work/my-repo/src/foo.ts --line 42 --column 10
 
 Only invoke this when the user has asked for it. Do not auto-open
 files you happen to be editing.
@@ -199,7 +199,7 @@ New:
 Modified:
 - `buf.gen.yaml` — already generates whole package; nothing to change
 - `lib/daemon/server.ts` — register `EditorService`
-- `cli/avm-host.ts` — add `editor open` subcommand
+- `cli/avm-bridge.ts` — add `editor open` subcommand
 - `lib/session.ts` — extend the generated `host-services.md` template
   with the editor section
 - `README.md` — brief mention under the Host Services section
@@ -228,7 +228,7 @@ by the host-services spec are sufficient.
 
 ## Success Criteria
 
-- From inside a container: `avm-host editor open /home/agent/.bashrc`
+- From inside a container: `avm-bridge editor open /home/agent/.bashrc`
   opens `.bashrc` in the user's configured editor, connected via
   remote SSH to that container.
 - Line/column arguments position the cursor correctly.

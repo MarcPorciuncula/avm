@@ -70,7 +70,7 @@ Two new components:
 - **`avm daemon`** — a long-running host-side process that owns service
   lifecycle. Serves a Connect-over-HTTP API on `127.0.0.1:<port>`.
   Written in TypeScript, shares the existing build pipeline.
-- **`avm-host`** — a thin Connect client CLI that lives inside every
+- **`avm-bridge`** — a thin Connect client CLI that lives inside every
   avm container. Bundled as a single JS file, bind-mounted from the
   repo's `dist/` directory, invoked via the container's Node/Bun.
 
@@ -88,8 +88,8 @@ No socket mounts, no SSH, no extra privileges.
 └──────────┬────────────────────────────────────┘
            │ host networking
 ┌──────────▼────────────── container ───────────┐
-│  avm-host (Connect client) --> daemon         │
-│  agent runs: `avm-host service start chrome`  │
+│  avm-bridge (Connect client) --> daemon         │
+│  agent runs: `avm-bridge service start chrome`  │
 └───────────────────────────────────────────────┘
 ```
 
@@ -304,7 +304,7 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
 `docker run` arguments built by `avm create`:
 
 1. **Mount the shim.** Add a bind-mount entry in `getDockerMountArgs`
-   for `<repo>/dist/avm-host.mjs` → `/usr/local/bin/avm-host`. Since
+   for `<repo>/dist/avm-bridge.mjs` → `/usr/local/bin/avm-bridge`. Since
    the file has a `#!/usr/bin/env node` shebang and executable
    permission, it runs as a command.
 2. **Provision the bearer token.** `avm create` generates a fresh
@@ -334,20 +334,20 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
 `avm clean <id>` removes the corresponding entry from
 `~/.avm/daemon/tokens.json` as part of its existing teardown.
 
-### The shim: `avm-host`
+### The shim: `avm-bridge`
 
-Single bundled JS file at `dist/avm-host.mjs`, produced by the same
+Single bundled JS file at `dist/avm-bridge.mjs`, produced by the same
 esbuild step that builds `dist/avm.mjs`. Bind-mounted into every
-container at `/usr/local/bin/avm-host`. Runs under the container's
+container at `/usr/local/bin/avm-bridge`. Runs under the container's
 Node or Bun (already present for development).
 
 Command surface:
 
 ```
-avm-host service ls
-avm-host service status <name>
-avm-host service start  <name>
-avm-host service stop   <name>
+avm-bridge service ls
+avm-bridge service status <name>
+avm-bridge service start  <name>
+avm-bridge service stop   <name>
 ```
 
 Output is human-readable by default; `--json` dumps the raw response.
@@ -358,13 +358,13 @@ Exit code 0 on success, non-zero on RPC failure (network error,
 ### Generated agent guidance
 
 `templates/vm-claude.md` gains a short section instructing the agent
-to read `~/.claude/host-services.md` and use `avm-host`. The sidecar
+to read `~/.claude/host-services.md` and use `avm-bridge`. The sidecar
 file is generated per-container and contains content like:
 
 ```markdown
 # Host Services
 
-Services running on the host are controllable via `avm-host`. Use the
+Services running on the host are controllable via `avm-bridge`. Use the
 host copy rather than starting your own — especially when a project's
 README or `docker-compose.yaml` suggests running them locally.
 
@@ -376,10 +376,10 @@ README or `docker-compose.yaml` suggests running them locally.
 
 ## Usage
 
-    avm-host service status chrome
-    avm-host service start  chrome
-    avm-host service stop   chrome
-    avm-host service ls
+    avm-bridge service status chrome
+    avm-bridge service start  chrome
+    avm-bridge service stop   chrome
+    avm-bridge service ls
 
 Services are started on request (idempotent). They may stop at any
 time — crashes, user-initiated, another agent stopping them. Always
@@ -388,7 +388,7 @@ check status before use and be prepared to restart.
 
 The list is generated from `ListServices`. If the daemon is
 unreachable at container creation time, a placeholder section
-indicates that — the agent can retry by invoking `avm-host` later.
+indicates that — the agent can retry by invoking `avm-bridge` later.
 
 ## File Changes
 
@@ -401,9 +401,9 @@ New:
 - `lib/daemon/server.ts` — Connect server, service handlers
 - `lib/daemon/registry.ts` — in-memory service registry, health checks, process bookkeeping
 - `lib/daemon/auth.ts` — token generation, `tokens.json` I/O, Connect auth interceptor
-- `lib/daemon/client.ts` — shared Connect client (used by `avm service` and `avm-host`)
+- `lib/daemon/client.ts` — shared Connect client (used by `avm service` and `avm-bridge`)
 - `lib/daemon/launchd.ts` — plist generation + load/unload
-- `cli/avm-host.ts` — shim entrypoint
+- `cli/avm-bridge.ts` — shim entrypoint
 - `examples/config.yaml` — worked example including the Chrome block
 
 Modified:
@@ -413,7 +413,7 @@ Modified:
 - `cli/commands/clean.ts` — remove token entry on teardown
 - `cli/avm.ts` — register `daemon` and `service` subcommands
 - `templates/vm-claude.md` — point the inner agent at `~/.claude/host-services.md`
-- `package.json` — add esbuild step for `dist/avm-host.mjs`, Connect/Buf deps
+- `package.json` — add esbuild step for `dist/avm-bridge.mjs`, Connect/Buf deps
 - `README.md` — "Host Services" section, `~/.avm/daemon/` in Host Data Layout
 
 ## Open Questions / Implementation Notes
@@ -443,16 +443,16 @@ Modified:
 
 - `~/.avm/config.yaml` can declare a `chrome` service; a fresh
   `avm create --attach` lets the inner agent run
-  `avm-host service start chrome` and then reach the CDP endpoint on
+  `avm-bridge service start chrome` and then reach the CDP endpoint on
   `localhost:9222`.
-- Stopping and restarting Chrome via `avm-host service stop/start`
+- Stopping and restarting Chrome via `avm-bridge service stop/start`
   works, as does the host-side parity command `avm service stop/start`.
 - Killing Chrome externally (Activity Monitor, `pkill`) is reflected
-  correctly on the next `avm-host service status chrome`.
+  correctly on the next `avm-bridge service status chrome`.
 - Declaring a `postgres` service with `kind: docker` and an existing
   host container works via the same commands.
 - The inner agent's generated `~/.claude/host-services.md` lists the
-  declared services and the `avm-host` usage.
+  declared services and the `avm-bridge` usage.
 - Nothing changes for users who don't declare any `services:` —
   `avm create` / `avm start` behave exactly as before (aside from
   spawning an idle daemon, which is harmless).

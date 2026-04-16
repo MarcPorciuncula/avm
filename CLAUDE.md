@@ -3,6 +3,39 @@
 A CLI for managing Docker containers that sandbox Claude Code agents. Read
 `README.md` first for the big picture.
 
+## Terminology
+
+These terms define the layers and actors in the system. Use them
+consistently in code, docs, specs, and conversation.
+
+- **avm** — the system as a whole: the CLI, the daemon, the container
+  images, and the workflow they enable.
+- **host** — the user's machine that runs the `avm` CLI and manages
+  containers. macOS with OrbStack.
+- **user** — the human operator. The same person whether they're
+  typing in a host terminal or directing an in-container agent. There
+  is only one user.
+- **host agent** — an agent running on the host machine (e.g. the
+  user's Claude Code session). Its job is helping the user configure
+  and operate their avm setup. It does NOT work on the user's
+  codebases directly — that's what avm containers are for.
+- **avm agent / in-container agent** — an agent running inside an avm
+  container, typically with `--dangerously-skip-permissions`. This is
+  the agent that does actual codebase work.
+- **avm CLI** — the host-side CLI (`avm create`, `avm start`, etc.).
+  A control interface for the user and/or the host agent.
+- **avm daemon** — a long-running process on the host that acts as
+  the control plane. The avm CLI and avm-bridge both talk to it.
+- **avm-bridge** — an in-container CLI for the avm agent to
+  coordinate with the host control plane (daemon). It is NOT for the
+  host to run. Think of it as "phone home from inside the sandbox."
+
+When writing specs, docs, or code: be precise about which layer an
+action happens on and which actor initiates it. "The agent opens a
+file" is ambiguous — specify whether the host agent or the avm agent
+is acting, and whether the action happens on the host or inside the
+container.
+
 ## Package Manager
 
 This project uses **pnpm** (via corepack). Use `pnpm install`, `pnpm exec`,
