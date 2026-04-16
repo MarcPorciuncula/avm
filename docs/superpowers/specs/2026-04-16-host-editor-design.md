@@ -123,14 +123,17 @@ Semantics:
    ```
 
    (`--goto` omitted if line/column are unset.) `<container_name>` is
-   something like `avm-abcde`; users have `avm ssh-config` set up so
-   this resolves as a valid SSH host.
-5. Spawn detached, return the argv in `command` for observability.
-
-The daemon does **not** check whether `avm ssh-config install` has
-been run — it assumes the user has done so and the editor's remote-SSH
-extension is able to resolve `avm-<id>`. If it hasn't, the editor
-itself surfaces the error to the user, which is the right UX.
+   something like `avm-abcde`.
+5. **Validate SSH config.** Check that `~/.ssh/config` includes the
+   avm SSH config (e.g. parse for `Include ~/.avm/ssh_config` or
+   check that `avm-<container_name>` resolves as a known host via
+   `ssh -G avm-<container_name>`). If the SSH config is missing,
+   return `FailedPrecondition` with a message like:
+   "avm SSH config is not installed. Run `avm ssh-config install` on
+   the host to enable editor remote connections."
+   The avm agent can relay this to the user rather than launching
+   the editor into a broken state.
+6. Spawn detached, return the argv in `command` for observability.
 
 ## `avm-bridge` (in-container CLI)
 
@@ -219,12 +222,9 @@ env vars already set by the host-services spec are sufficient.
 - **Already-open windows.** Cursor/VS Code deduplicate by remote +
   workspace, so repeated calls reuse the existing window. No extra
   logic needed from us.
-- **`avm ssh-config` not installed.** If `~/.ssh/config` doesn't
-  include the avm config, the editor's remote-SSH extension will fail
-  to resolve `avm-<id>`. The daemon could detect this and error early,
-  but the editor's error message is already clear, and detection
-  requires probing the user's SSH config. Defer unless user reports
-  confusion.
+- **`avm ssh-config` not installed.** The daemon validates this
+  before launching the editor and returns `FailedPrecondition` with
+  actionable guidance. See step 5 in Daemon behavior.
 
 ## Success Criteria
 
