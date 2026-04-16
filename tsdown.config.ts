@@ -13,14 +13,14 @@ export default defineConfig([
     outDir: "dist",
     banner: { js: "#!/usr/bin/env node" },
   },
-  // Bridge: must be a single self-contained file (bind-mounted into containers)
+  // Bridge: fully self-contained single file (bind-mounted into containers
+  // where no node_modules exist). Bundle ALL dependencies.
   {
     entry: {
       "avm-bridge": "packages/avm-bridge/src/cli/avm-bridge.ts",
     },
     format: "esm",
     platform: "node",
-    deps: { neverBundle: [/^(?!@avm\/)[^./]/] },
     outDir: "dist",
     banner: { js: "#!/usr/bin/env node" },
   },
