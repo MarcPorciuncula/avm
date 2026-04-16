@@ -142,8 +142,11 @@ Three new components:
   file, bind-mounted from the repo's `dist/` directory, invoked via
   the container's Node.
 - **`avm service`** — a new subcommand on the host CLI that talks to
-  the daemon over Connect, giving the user and host agent parity with
-  what `avm-bridge service` provides from inside containers.
+  the daemon over Connect (via `avm.host.v1`, authenticated with the
+  host secret), giving the user and host agent parity with what
+  `avm-bridge service` provides from inside containers. Requires a
+  `ServicesService` in the `avm.host.v1` proto package (duplicate types
+  from `avm.bridge.v1`, as the host view may diverge over time).
 
 Containers reach the daemon via host networking — `localhost:$AVM_HOST_PORT`.
 No socket mounts, no SSH, no extra privileges.
@@ -155,7 +158,7 @@ No socket mounts, no SSH, no extra privileges.
 │                            │                     │
 │                            ├─ spawns Chrome      │
 │                            ├─ docker start pg    │
-│                            └─ owns state.db      │
+│                            └─ owns state.json     │
 │                                                  │
 └──────────┬───────────────────────────────────────┘
            │ host networking
@@ -223,9 +226,27 @@ message UnregisterContainerRequest { string name = 1; }
 message UnregisterContainerResponse {}
 ```
 
-Future additions to this package: service management parity RPCs
-(so `avm service ls` on the host calls the same daemon), container
-introspection, etc.
+This package also includes a `ServicesService` (duplicate types from
+`avm.bridge.v1` — both are thin RPC layers over the same internal
+domain logic):
+
+```proto
+// proto/avm/host/v1/services.proto
+syntax = "proto3";
+package avm.host.v1;
+
+service ServicesService {
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  rpc GetService(GetServiceRequest)     returns (Service);
+  rpc StartService(StartServiceRequest) returns (Service);
+  rpc StopService(StopServiceRequest)   returns (Service);
+}
+```
+
+Messages mirror `avm.bridge.v1.ServicesService` for now but may
+diverge as the host view gains richer metadata (monitoring, logs).
+
+Future additions: container introspection, etc.
 
 #### No shared proto package
 
@@ -352,8 +373,8 @@ Schema rules:
 
 - `kind` is required; `process` or `docker`.
 - For `process`: `command` is required (array; first element is the
-  binary, rest are args). No shell interpretation — `avm` invokes it
-  directly, inherits the user's environment.
+  binary, rest are args). No shell interpretation — the daemon invokes
+  it directly, inheriting the user's environment.
 - For `docker`: `container` is required (name of a host-side container
   the user has already created). `docker start <name>` / `docker stop <name>`
   control it.
@@ -366,6 +387,16 @@ Schema rules:
 Parsing/validation lives alongside the existing code in
 `lib/config-file.ts`. Invalid entries throw with a clear message
 identifying the offending key, same as today.
+
+### Daemon internal architecture
+
+Connect service handlers in the daemon are thin routers — they
+validate the request, extract auth context, and delegate to
+centralized domain logic (the service registry, the state store,
+etc.). When `avm.host.v1.ServicesService` and
+`avm.bridge.v1.ServicesService` expose the same operation, both
+handlers call the same internal function. Business logic never lives
+in the handler layer.
 
 ### Daemon behavior
 
@@ -551,12 +582,13 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 ### Proto + codegen (new)
 - `proto/avm/bridge/v1/services.proto` — `avm.bridge.v1.ServicesService` (container token auth)
 - `proto/avm/host/v1/containers.proto` — `avm.host.v1.ContainerService` (host secret auth)
+- `proto/avm/host/v1/services.proto` — `avm.host.v1.ServicesService` (host secret auth)
 - `buf.yaml`, `buf.gen.yaml` — Buf config; generates into `packages/shared/src/gen/`
 
 ### `packages/avm-daemon` — new files
 - `src/server.ts` — Connect server setup + HTTP listener
 - `src/services.ts` — ServicesService handlers
-- `src/admin.ts` — AdminService handlers (register/unregister containers)
+- `src/containers.ts` — ContainerService handlers (register/unregister)
 - `src/registry.ts` — in-memory service registry, health checks, process bookkeeping
 - `src/auth.ts` — token management, Connect auth interceptor
 - `src/state.ts` — state persistence (daemon-internal; format is an implementation detail)

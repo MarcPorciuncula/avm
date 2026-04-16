@@ -116,7 +116,14 @@ Semantics:
 3. Validate the editor binary exists on `PATH` (`which cursor` /
    `which code`). If not, return `FailedPrecondition` with a message
    pointing the user at the install-shell-command step of the editor.
-4. Build the argv:
+4. **Validate SSH config.** Check that `~/.ssh/config` includes the
+   avm SSH config (e.g. parse for `Include ~/.avm/ssh_config` or
+   check that `avm-<container_name>` resolves as a known host via
+   `ssh -G avm-<container_name>`). If the SSH config is missing,
+   return `FailedPrecondition` with a message like:
+   "avm SSH config is not installed. The user needs to run
+   `avm ssh-config install` on the host."
+5. Build the argv:
 
    ```
    <editor> --remote ssh-remote+<container_name> --goto <path>:<line>:<col>
@@ -124,13 +131,6 @@ Semantics:
 
    (`--goto` omitted if line/column are unset.) `<container_name>` is
    something like `avm-abcde`.
-5. **Validate SSH config.** Check that `~/.ssh/config` includes the
-   avm SSH config (e.g. parse for `Include ~/.avm/ssh_config` or
-   check that `avm-<container_name>` resolves as a known host via
-   `ssh -G avm-<container_name>`). If the SSH config is missing,
-   return `FailedPrecondition` with a message like:
-   "avm SSH config is not installed. The user needs to run
-   `avm ssh-config install` on the host."
 6. Spawn detached, return the argv in `command` for observability.
 
 ## `avm-bridge` (in-container CLI)
@@ -213,7 +213,7 @@ env vars already set by the host-services spec are sufficient.
 - **`--goto` vs `:<line>:<col>` syntax.** Both Cursor and VS Code
   accept `--goto <file>:<line>:<col>`. We'll use that uniformly. If a
   future editor doesn't, the per-editor argv composition will move
-  into a small strategy table inside `lib/daemon/editor.ts`.
+  into a small strategy table inside `packages/avm-daemon/src/editor.ts`.
 - **Tilde expansion.** `avm-bridge` resolves `~` relative to the container
   user's home before sending. The daemon does not expand `~` — all
   paths arriving at the daemon are already absolute.
