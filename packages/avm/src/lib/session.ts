@@ -20,6 +20,7 @@ import {
   avmMirrorsDir,
   avmSystemClaudeDir,
   avmSystemClaudeJsonFile,
+  avmSystemClaudeMdFile,
   avmSystemDir,
   avmSystemGitConfigFile,
   avmSystemSshDir,
@@ -128,6 +129,10 @@ export function ensureHostScaffolding(): void {
   if (!existsSync(avmSystemClaudeJsonFile)) {
     writeFileSync(avmSystemClaudeJsonFile, "{}\n");
   }
+
+  // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
+  const config = loadAvmConfig();
+  generateRootClaudeMd(config);
 }
 
 /**
@@ -173,57 +178,68 @@ export async function applyPostCreationSetup(
 
   // --- Make avm-bridge executable ---
   await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-bridge`;
-
-  // --- Write host-services sidecar ---
-  await writeHostServicesSidecar(containerName, config);
 }
 
 /**
- * Generate a `~/.claude/host-services.md` file inside the container that
- * describes available host services and how to control them via `avm-bridge`.
- * Skipped when no services are configured.
+ * Generate the root-level `~/CLAUDE.md` that every container sees.
+ * Written to `~/.avm/system/CLAUDE.md` on the host and bind-mounted
+ * into containers — updates propagate to running containers immediately.
+ *
+ * Content: static avm agent guidance (from templates/vm-claude.md
+ * conceptually) plus dynamic host-services listing from config.
  */
-async function writeHostServicesSidecar(
-  containerName: string,
-  config: AvmConfig,
-): Promise<void> {
-  const serviceEntries = Object.entries(config.services);
-  if (serviceEntries.length === 0) return;
-
+export function generateRootClaudeMd(config: AvmConfig): void {
   const lines = [
-    "# Host Services",
+    "# avm Agent Environment",
     "",
-    "Services running on the host are controllable via `avm-bridge`. Use the",
-    "host copy rather than starting your own — especially when a project's",
-    "README or `docker-compose.yaml` suggests running them locally.",
+    "You are running inside an `avm` sandbox — a Docker container with full",
+    "autonomy. Only explicitly mounted paths from the host are visible.",
     "",
-    "## Available services",
+    "Do your work in `~/work/`. To clone repos, consult the avm-repos skill",
+    "before continuing. To use Docker, consult the avm-docker skill before",
+    "continuing.",
     "",
+    "You have free reign over this sandbox, but exercise care with anything",
+    "that touches external systems — pushing to GitHub, running CLIs or MCPs",
+    "that interact with external services, etc.",
+    "",
+    "The container filesystem persists across stop/start but is destroyed on",
+    "cleanup. Only remote commits are durable.",
   ];
 
-  for (const [name, svc] of serviceEntries) {
-    const kind = svc.kind === "process" ? "host process" : "host docker container";
-    lines.push(`- **${name}** (${kind}) — on \`${svc.check.tcp}\``);
+  const serviceEntries = Object.entries(config.services);
+  if (serviceEntries.length > 0) {
+    lines.push("");
+    lines.push("## Host services");
+    lines.push("");
+    lines.push("Services running on the host are controllable via `avm-bridge`. Use the");
+    lines.push("host copy rather than starting your own — especially when a project's");
+    lines.push("README or `docker-compose.yaml` suggests running them locally.");
+    lines.push("");
+    lines.push("### Available services");
+    lines.push("");
+
+    for (const [name, svc] of serviceEntries) {
+      const kind = svc.kind === "process" ? "host process" : "host docker container";
+      lines.push(`- **${name}** (${kind}) — on \`${svc.check.tcp}\``);
+    }
+
+    lines.push("");
+    lines.push("### Usage");
+    lines.push("");
+    lines.push("    avm-bridge service start  <name>");
+    lines.push("    avm-bridge service stop   <name>");
+    lines.push("    avm-bridge service status <name>");
+    lines.push("    avm-bridge service ls");
+    lines.push("");
+    lines.push("Services are started on request (idempotent). They may stop at any");
+    lines.push("time — crashes, user-initiated, another agent stopping them. Always");
+    lines.push("check status before use and be prepared to restart.");
   }
 
   lines.push("");
-  lines.push("## Usage");
-  lines.push("");
-  lines.push("    avm-bridge service status <name>");
-  lines.push("    avm-bridge service start  <name>");
-  lines.push("    avm-bridge service stop   <name>");
-  lines.push("    avm-bridge service ls");
-  lines.push("");
-  lines.push("Services are started on request (idempotent). They may stop at any");
-  lines.push("time — crashes, user-initiated, another agent stopping them. Always");
-  lines.push("check status before use and be prepared to restart.");
-  lines.push("");
 
-  const content = lines.join("\n");
-
-  const cmd = "mkdir -p /home/agent/.claude && cat > /home/agent/.claude/host-services.md";
-  await $({ input: content })`docker exec -i ${containerName} bash -c ${cmd}`;
-  await $`docker exec -u root ${containerName} chown agent:agent /home/agent/.claude/host-services.md`;
+  writeFileSync(avmSystemClaudeMdFile, lines.join("\n"));
 }
 
 /**
@@ -240,6 +256,7 @@ export function getDockerMountArgs(config: AvmConfig): string[] {
     [avmSystemSshDir, "/home/agent/.ssh"],
     [avmSystemClaudeDir, "/home/agent/.claude"],
     [avmSystemClaudeJsonFile, "/home/agent/.claude.json"],
+    [avmSystemClaudeMdFile, "/home/agent/CLAUDE.md"],
     [avmMirrorsDir, "/home/agent/mirrors"],
     [avmFilesDir, "/home/agent/.avm-files"],
     [bridgeBin, "/usr/local/bin/avm-bridge"],

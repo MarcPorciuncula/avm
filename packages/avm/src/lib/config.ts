@@ -32,6 +32,7 @@ export const avmSystemGitConfigFile = path.join(
 );
 export const avmSystemClaudeDir = path.join(avmSystemDir, "claude");
 export const avmSystemClaudeJsonFile = path.join(avmSystemDir, "claude.json");
+export const avmSystemClaudeMdFile = path.join(avmSystemDir, "CLAUDE.md");
 
 export const avmMirrorsDir = path.join(AVM_HOME, "mirrors");
 export const avmVolumesDir = path.join(AVM_HOME, "volumes");
