@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@avm/cli':
+        specifier: workspace:*
+        version: link:packages/avm
     devDependencies:
       tsdown:
         specifier: ^0.21.7

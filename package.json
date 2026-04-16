@@ -11,6 +11,9 @@
     "dev": "tsdown --watch",
     "prepare": "tsdown"
   },
+  "dependencies": {
+    "@avm/cli": "workspace:*"
+  },
   "devDependencies": {
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",
