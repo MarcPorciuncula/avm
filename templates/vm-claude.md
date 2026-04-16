@@ -19,8 +19,7 @@ autonomy. Only explicitly mounted paths from the host are visible.
 
 Do your work in `~/work/`. To clone repos, consult the avm-repos skill
 before continuing. To use Docker, consult the avm-docker skill before
-continuing. To use host services (Chrome, Postgres, etc.), consult the
-avm-services skill. When the user asks you to open a file in their
+continuing. To use host services, consult the avm-services skill. When the user asks you to open a file in their
 editor, consult the avm-editor skill.
 
 You have free reign over this sandbox, but exercise care with anything
