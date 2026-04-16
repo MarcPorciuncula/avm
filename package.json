@@ -9,12 +9,18 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "prepare": "tsdown"
+    "prepare": "tsdown",
+    "buf:generate": "buf dep update && buf generate"
   },
   "dependencies": {
     "@avm/cli": "workspace:*"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@bufbuild/buf", "esbuild"]
+  },
   "devDependencies": {
+    "@bufbuild/buf": "^1.68.1",
+    "@bufbuild/protoc-gen-es": "^2.11.0",
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
