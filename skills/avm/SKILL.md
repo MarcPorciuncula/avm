@@ -334,8 +334,30 @@ If a command works during `docker build` but is missing at runtime:
 They are complementary: the Dockerfile provides the tools, volumes keep
 the caches warm. The volume must never shadow the tool install.
 
+## Your role as the host agent
+
+You are a host agent. Your job is helping the user configure and
+operate their avm setup — not doing codebase work. Codebase work
+happens inside containers, performed by avm agents.
+
+**You MUST NOT perform actual work inside containers directly.** Do not
+use `avm exec` to edit files, run builds, install packages, commit
+code, or do anything that constitutes codebase work. That defeats the
+purpose of sandboxing.
+
+`avm exec` is available for:
+- Ad hoc debugging when the user explicitly asks (e.g. "check what's
+  in that container's work directory")
+- Dispatching to an inner agent when the user explicitly asks (e.g.
+  starting a `claude` session inside a container)
+
+If the user asks you to do work that belongs inside a container,
+create or start a container and let the avm agent handle it.
+
 ## Things NOT to do
 
+- **Don't do codebase work inside containers.** See above. Delegate
+  to the avm agent.
 - **Don't create containers by calling `docker` directly.** Always go
   through `avm create` so mounts, credentials, and setup are applied
   correctly.
