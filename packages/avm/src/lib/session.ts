@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { createHostContainerClient } from "@avm/shared/host-client";
 import {
   AVM_HOME,
+  REPO_ROOT,
   avmDaemonDir,
   avmDaemonHostSecretFile,
   avmDaemonLogFile,
@@ -185,51 +186,33 @@ export async function applyPostCreationSetup(
  * Written to `~/.avm/system/CLAUDE.md` on the host and bind-mounted
  * into containers — updates propagate to running containers immediately.
  *
- * Content: static avm agent guidance pointing the agent at the
- * relevant skills, plus a dynamic listing of declared host services
- * so the agent is ambiently aware of what's available.
+ * Static content comes from `templates/vm-claude.md`. This function
+ * appends dynamic sections (e.g. host services listing).
  */
 export function generateRootClaudeMd(config: AvmConfig): void {
-  const lines = [
-    "# avm Agent Environment",
-    "",
-    "You are running inside an `avm` sandbox — a Docker container with full",
-    "autonomy. Only explicitly mounted paths from the host are visible.",
-    "",
-    "Do your work in `~/work/`. To clone repos, consult the avm-repos skill",
-    "before continuing. To use Docker, consult the avm-docker skill before",
-    "continuing. To use host services, consult the avm-services skill.",
-    "When the user asks you to open a file in their editor, consult the",
-    "avm-editor skill.",
-    "",
-    "Networking is fully open — any port you listen on inside the container",
-    "is directly accessible from the host at localhost. No port forwarding",
-    "or SSH tunnels are needed.",
-    "",
-    "You have free reign over this sandbox, but exercise care with anything",
-    "that touches external systems — pushing to GitHub, running CLIs or MCPs",
-    "that interact with external services, etc.",
-    "",
-    "The container filesystem persists across stop/start but is destroyed on",
-    "cleanup. Only remote commits are durable.",
-  ];
+  const template = readFileSync(
+    join(REPO_ROOT, "templates", "vm-claude.md"),
+    "utf-8",
+  );
+
+  const parts = [template.trimEnd()];
 
   const serviceEntries = Object.entries(config.services);
   if (serviceEntries.length > 0) {
-    lines.push("");
-    lines.push("## Host services");
-    lines.push("");
-    lines.push("The following services are available on the host via `avm-bridge`.");
-    lines.push("Consult the avm-services skill for usage.");
-    lines.push("");
+    parts.push("");
+    parts.push("## Host services");
+    parts.push("");
+    parts.push("The following services are available on the host via `avm-bridge`.");
+    parts.push("Consult the avm-services skill for usage.");
+    parts.push("");
     for (const [name, svc] of serviceEntries) {
-      lines.push(`- **${name}** — \`${svc.check.tcp}\``);
+      parts.push(`- **${name}** — \`${svc.check.tcp}\``);
     }
   }
 
-  lines.push("");
+  parts.push("");
 
-  writeFileSync(avmSystemClaudeMdFile, lines.join("\n"));
+  writeFileSync(avmSystemClaudeMdFile, parts.join("\n"));
 }
 
 /**
