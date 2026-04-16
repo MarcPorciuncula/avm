@@ -67,26 +67,34 @@ containers reach `localhost` on the host directly. The gap is
 
 ### Repo structure: pnpm workspaces
 
-The repo moves to a pnpm workspaces layout with three packages:
+The repo moves to a pnpm workspaces layout with four packages:
 
 ```
 pnpm-workspace.yaml
 packages/
-  avm/                  # host CLI + daemon (the existing CLI, relocated)
+  avm/                  # host CLI (the existing CLI, relocated)
     package.json
     src/
-      cli/              # citty entrypoint + subcommands (create, start, daemon, service, …)
+      cli/              # citty entrypoint + subcommands (create, start, service, …)
       lib/              # config, session, image, vm helpers
-      daemon/           # Connect server, service handlers, auth, launchd
+  avm-daemon/           # host-side Connect server, owns all shared state
+    package.json
+    src/
+      server.ts         # Connect server setup + HTTP listener
+      services.ts       # ServicesService handlers
+      registry.ts       # in-memory service registry, health checks, process bookkeeping
+      auth.ts           # token management, Connect auth interceptor
+      launchd.ts        # plist generation + load/unload
+      state.ts          # state storage (daemon-internal; format is an implementation detail)
   avm-bridge/           # in-container CLI
     package.json
     src/
       cli/              # citty entrypoint + subcommands (service, editor)
-  shared/               # proto types, Connect client, shared config types
+  shared/               # proto types, Connect client factory
     package.json
     src/
-      client.ts         # Connect client (used by both avm service and avm-bridge)
-      config.ts         # config types shared between host and bridge
+      client.ts         # Connect client factory (used by avm, avm-bridge, and avm-daemon tests)
+      gen/              # Buf-generated TypeScript from protos
 proto/                  # .proto source files (not a package; Buf generates into packages/shared)
   avm/v1/
     services.proto
@@ -94,12 +102,23 @@ buf.yaml
 buf.gen.yaml
 ```
 
-`packages/avm` depends on `packages/shared`.
-`packages/avm-bridge` depends on `packages/shared`.
-Neither depends on the other.
+Dependency graph:
+- `packages/shared` — no internal dependencies. All three other
+  packages depend on it for proto types and client factory.
+- `packages/avm-daemon` — depends on `shared`. Owns its own state
+  storage; neither CLI touches it directly.
+- `packages/avm` — depends on `shared`. Talks to the daemon over
+  Connect for state-touching operations (token registration, service
+  control). Calls Docker directly for container lifecycle.
+- `packages/avm-bridge` — depends on `shared`. Talks to the daemon
+  over Connect only.
+- `avm` spawns `avm-daemon` but has no code dependency on it.
+- `avm` and `avm-bridge` never depend on each other.
 
 Each package has its own esbuild entrypoint:
 - `packages/avm` → `dist/avm.mjs` (the host CLI, same as today)
+- `packages/avm-daemon` → `dist/avm-daemon.mjs` (spawned by the host
+  CLI or launchd)
 - `packages/avm-bridge` → `dist/avm-bridge.mjs` (bind-mounted into
   containers)
 
@@ -109,34 +128,38 @@ the host PATH.
 
 ### Components
 
-Two new components:
+Three new components:
 
-- **`avm daemon`** — a long-running host-side process that owns service
-  lifecycle. Serves a Connect-over-HTTP API on `127.0.0.1:<port>`.
-  Lives inside `packages/avm` (it's a host-side concern; the host CLI
-  starts/installs it).
+- **`avm-daemon`** — a long-running host-side process that owns service
+  lifecycle and all shared state (tokens, PIDs, future agent/container
+  metadata). Serves a Connect-over-HTTP API on `127.0.0.1:<port>`.
+  Spawned by the host CLI or installed as a launchd agent.
 - **`avm-bridge`** — a separate CLI that lives inside every avm
   container. Built from `packages/avm-bridge`, bundled as a single JS
   file, bind-mounted from the repo's `dist/` directory, invoked via
   the container's Node/Bun.
+- **`avm service`** — a new subcommand on the host CLI that talks to
+  the daemon over Connect, giving the user and host agent parity with
+  what `avm-bridge service` provides from inside containers.
 
 Containers reach the daemon via host networking — `localhost:$AVM_HOST_PORT`.
 No socket mounts, no SSH, no extra privileges.
 
 ```
-┌──────────────── host (macOS) ─────────────────┐
-│                                               │
-│  ~/.avm/config.yaml ──> avm daemon (127.0.0.1)│
-│                          │                    │
-│                          ├─ spawns Chrome     │
-│                          └─ docker start pg   │
-│                                               │
-└──────────┬────────────────────────────────────┘
+┌────────────────── host (macOS) ──────────────────┐
+│                                                  │
+│  avm (host CLI) ──rpc──> avm-daemon (127.0.0.1)  │
+│                            │                     │
+│                            ├─ spawns Chrome      │
+│                            ├─ docker start pg    │
+│                            └─ owns state.db      │
+│                                                  │
+└──────────┬───────────────────────────────────────┘
            │ host networking
-┌──────────▼────────────── container ───────────┐
-│  avm-bridge (Connect client) --> daemon       │
-│  agent runs: `avm-bridge service start chrome`│
-└───────────────────────────────────────────────┘
+┌──────────▼──────────────── container ────────────┐
+│  avm-bridge ──rpc──> avm-daemon                  │
+│  agent runs: `avm-bridge service start chrome`   │
+└──────────────────────────────────────────────────┘
 ```
 
 ### RPC surface (v1)
@@ -185,29 +208,41 @@ per-container bearer token now, before those RPCs arrive.
 
 **Token lifecycle.**
 
-- `avm create` generates a 32-byte random token (base64url), writes
-  it to `~/.avm/daemon/tokens.json` keyed by container name, and
-  passes it to the container as `$AVM_HOST_TOKEN` via
-  `docker run -e AVM_HOST_TOKEN=<value>`.
+- `avm create` ensures the daemon is running, then calls
+  `RegisterContainer(name)` → the daemon generates a 32-byte random
+  token (base64url), persists it in its own state store, and returns
+  it. The host CLI passes the token to `docker run -e AVM_HOST_TOKEN=<value>`.
 - `avm stop` / `avm start` don't touch the token — env vars persist
   with the container across `docker stop`/`docker start`, so the
   token survives.
-- `avm clean <id>` removes the entry from `tokens.json` as part of
-  the existing cleanup flow.
+- `avm clean <id>` calls `UnregisterContainer(name)` on the daemon,
+  which removes the token from its state store.
 
 **Storage.**
 
-`~/.avm/daemon/tokens.json` has the shape:
+The daemon owns its state store. The format is an internal
+implementation detail — JSON with atomic writes, SQLite KV, or
+anything else the daemon chooses. Neither CLI reads or writes the
+state directly. The state lives under `~/.avm/daemon/` with
+restrictive permissions (`0700` on directory, `0600` on files).
 
-```json
-{
-  "avm-abcde": { "token": "…base64url…", "created_at": "2026-04-16T…" }
+The daemon's RPC surface for container registration:
+
+```proto
+service ContainerService {
+  rpc RegisterContainer(RegisterContainerRequest)     returns (RegisterContainerResponse);
+  rpc UnregisterContainer(UnregisterContainerRequest) returns (UnregisterContainerResponse);
 }
+
+message RegisterContainerRequest   { string name = 1; }
+message RegisterContainerResponse  { string token = 1; }
+message UnregisterContainerRequest { string name = 1; }
+message UnregisterContainerResponse {}
 ```
 
-The daemon reads this file on every RPC (same pattern as `config.yaml`),
-building an in-memory index `token → container_name`. File permissions
-are `0600`; parent directory is `0700`.
+These RPCs are called by the host CLI only (not by avm-bridge).
+They do not require bearer-token auth — the host CLI is trusted
+(it's running on the host, same user account as the daemon).
 
 **Shim and daemon handshake.**
 
@@ -308,18 +343,24 @@ require a restart.
 **`ListServices` / `GetService`** run the health check and return
 current state. They never mutate anything.
 
-**State persistence**. The daemon keeps a tiny JSON file at
-`~/.avm/daemon/state.json` mapping service name → last known PID.
-This survives daemon restarts so `StopService` can still target the
-right process. It is **not** a source of truth — the health check is.
-Logs go to `~/.avm/daemon/daemon.log`.
+**State persistence**. The daemon owns all persistent state: service
+PIDs, container tokens, and any future metadata. The storage format
+is an internal implementation detail of the `avm-daemon` package
+(JSON with atomic writes for now; can migrate to SQLite KV later
+without touching any CLI code). The health check is always the source
+of truth for service state — persisted PIDs are a best-effort hint
+for `StopService` after daemon restart.
+
+Logs go to `~/.avm/daemon/daemon.log`. The daemon writes its own PID
+to `~/.avm/daemon/daemon.pid` on startup so `avm daemon stop` can
+find it.
 
 **Directory layout**. New:
 
 ```
 ~/.avm/daemon/
-├── state.json       # service name → last known PID (see above)
-├── tokens.json      # container name → bearer token (see Authentication)
+├── state.json       # daemon-internal: tokens, service PIDs, metadata
+├── daemon.pid       # daemon process ID (for avm daemon stop)
 └── daemon.log
 ```
 
@@ -334,15 +375,19 @@ Two modes:
   `avm daemon uninstall` unloads and removes. The daemon runs on login,
   restarts on crash, survives reboots.
 - **Lazy spawn (fallback)**. `avm create` / `avm start` check whether
-  the daemon is reachable (a Connect `GetService` or a trivial
-  `/healthz` probe). If not, they spawn `avm daemon` detached from the
-  current process. This is enough for casual users who haven't run the
-  install step.
+  the daemon is reachable (a Connect health probe). If not, they spawn
+  `dist/avm-daemon.mjs` detached from the current process. This is
+  enough for casual users who haven't run the install step.
 
-Additional subcommands:
+Additional subcommands on the host CLI:
 
-- `avm daemon` — run in the foreground (what launchd invokes).
+- `avm daemon start` — spawn the daemon (or verify it's already up).
+- `avm daemon stop` — read PID file, send SIGTERM.
 - `avm daemon status` — print daemon URL and reachability.
+- `avm daemon install` / `uninstall` — manage the launchd agent.
+
+Running `dist/avm-daemon.mjs` directly (no subcommand) starts the
+server in the foreground — this is what launchd invokes.
 
 ### Container integration
 
@@ -353,12 +398,12 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
    for `<repo>/dist/avm-bridge.mjs` → `/usr/local/bin/avm-bridge`. Since
    the file has a `#!/usr/bin/env node` shebang and executable
    permission, it runs as a command.
-2. **Provision the bearer token.** `avm create` generates a fresh
-   token, upserts it into `~/.avm/daemon/tokens.json` (keyed by
-   container name), and passes `-e AVM_HOST_TOKEN=<value>` to
-   `docker run`. This happens before the daemon is consulted, so
-   `avm create` works even if the daemon has to be lazy-spawned. The
-   token is env-only — never written inside the container.
+2. **Provision the bearer token.** `avm create` ensures the daemon is
+   running (lazy-spawn if needed), then calls `RegisterContainer(name)`
+   on the daemon. The daemon generates the token, persists it, and
+   returns it. The host CLI passes `-e AVM_HOST_TOKEN=<value>` to
+   `docker run`. The token is env-only — never written inside the
+   container.
 3. **Export `AVM_HOST_PORT`.** Pass `-e AVM_HOST_PORT=<port>` on
    `docker run`. The port is read from `config.yaml` (`daemon.port`,
    default 6970). Existing containers don't pick up a port change
@@ -377,8 +422,8 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
    is regenerated on every `avm create`/`start`; the user-editable
    `CLAUDE.md` is not touched after first seed (existing contract).
 
-`avm clean <id>` removes the corresponding entry from
-`~/.avm/daemon/tokens.json` as part of its existing teardown.
+`avm clean <id>` calls `UnregisterContainer(name)` on the daemon to
+revoke the token as part of its existing teardown.
 
 ### `avm-bridge` (in-container CLI)
 
@@ -441,34 +486,42 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 ### Workspace scaffolding (new)
 - `pnpm-workspace.yaml` — declares `packages/*`
 - `packages/avm/package.json` — host CLI package (absorbs existing root deps)
+- `packages/avm-daemon/package.json` — daemon server package
 - `packages/avm-bridge/package.json` — in-container CLI package
-- `packages/shared/package.json` — proto types + Connect client
+- `packages/shared/package.json` — proto types + Connect client factory
 
 ### Proto + codegen (new)
-- `proto/avm/v1/services.proto` — RPC definitions
+- `proto/avm/v1/services.proto` — ServicesService RPCs
+- `proto/avm/v1/containers.proto` — ContainerService RPCs (register/unregister)
 - `buf.yaml`, `buf.gen.yaml` — Buf config; generates into `packages/shared/src/gen/`
 
+### `packages/avm-daemon` — new files
+- `src/server.ts` — Connect server setup + HTTP listener
+- `src/services.ts` — ServicesService handlers
+- `src/containers.ts` — ContainerService handlers (register/unregister)
+- `src/registry.ts` — in-memory service registry, health checks, process bookkeeping
+- `src/auth.ts` — token management, Connect auth interceptor
+- `src/state.ts` — state persistence (daemon-internal; format is an implementation detail)
+- `src/launchd.ts` — plist generation + load/unload
+- `src/main.ts` — entrypoint (starts server in foreground)
+
 ### `packages/avm` (host CLI) — new files
-- `src/daemon/server.ts` — Connect server, service handlers
-- `src/daemon/registry.ts` — in-memory service registry, health checks, process bookkeeping
-- `src/daemon/auth.ts` — token generation, `tokens.json` I/O, Connect auth interceptor
-- `src/daemon/launchd.ts` — plist generation + load/unload
-- `src/cli/commands/daemon.ts` — `avm daemon [install|uninstall|status]`
-- `src/cli/commands/service.ts` — `avm service [ls|status|start|stop]` (host-side parity)
+- `src/cli/commands/daemon.ts` — `avm daemon [start|stop|status|install|uninstall]`
+- `src/cli/commands/service.ts` — `avm service [ls|status|start|stop]` (host-side parity, talks to daemon via Connect)
 
 ### `packages/avm` (host CLI) — modified files
 - `src/cli/avm.ts` — register `daemon` and `service` subcommands
-- `src/cli/commands/create.ts` — provision token before `docker run`
-- `src/cli/commands/clean.ts` — remove token entry on teardown
+- `src/cli/commands/create.ts` — ensure daemon is up, call `RegisterContainer`, pass token to `docker run`
+- `src/cli/commands/clean.ts` — call `UnregisterContainer` on teardown
 - `src/lib/config-file.ts` — parse `daemon.` and `services.` blocks; extend `AvmConfig`
-- `src/lib/session.ts` — mount the bridge, export `AVM_HOST_PORT` / `AVM_HOST_TOKEN` / `AVM_CONTAINER_NAME`, provision tokens, generate `host-services.md`, ensure daemon is up
+- `src/lib/session.ts` — mount the bridge, export `AVM_HOST_PORT` / `AVM_HOST_TOKEN` / `AVM_CONTAINER_NAME`, generate `host-services.md`, ensure daemon is up
 
 ### `packages/avm-bridge` (in-container CLI) — new files
 - `src/cli/avm-bridge.ts` — citty entrypoint
 - `src/cli/commands/service.ts` — `avm-bridge service [ls|status|start|stop]`
 
 ### `packages/shared` — new files
-- `src/client.ts` — Connect client (used by both `avm service` and `avm-bridge`)
+- `src/client.ts` — Connect client factory (used by `avm`, `avm-bridge`, and `avm-daemon` tests)
 - `src/config.ts` — shared config types (service definitions, daemon config)
 - `src/gen/` — Buf-generated TypeScript from protos
 

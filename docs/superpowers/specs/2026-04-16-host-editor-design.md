@@ -194,10 +194,10 @@ or pass --editor."
 
 New:
 - `proto/avm/v1/editor.proto` — EditorService
-- `packages/avm/src/daemon/editor.ts` — `OpenFile` handler
+- `packages/avm-daemon/src/editor.ts` — `OpenFile` handler
 
 Modified:
-- `packages/avm/src/daemon/server.ts` — register `EditorService`
+- `packages/avm-daemon/src/server.ts` — register `EditorService`
 - `packages/avm-bridge/src/cli/commands/editor.ts` — add `editor open` subcommand
 - `packages/avm/src/lib/session.ts` — extend the generated `host-services.md` template
   with the editor section
