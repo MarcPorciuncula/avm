@@ -13,3 +13,9 @@ that interact with external services, etc.
 
 The container filesystem persists across stop/start but is destroyed on
 cleanup. Only remote commits are durable.
+
+## Host services
+
+If `~/.claude/host-services.md` exists, read it for information about
+services running on the host machine and how to control them via
+`avm-bridge`.

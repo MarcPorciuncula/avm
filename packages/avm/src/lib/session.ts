@@ -173,6 +173,57 @@ export async function applyPostCreationSetup(
 
   // --- Make avm-bridge executable ---
   await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-bridge`;
+
+  // --- Write host-services sidecar ---
+  await writeHostServicesSidecar(containerName, config);
+}
+
+/**
+ * Generate a `~/.claude/host-services.md` file inside the container that
+ * describes available host services and how to control them via `avm-bridge`.
+ * Skipped when no services are configured.
+ */
+async function writeHostServicesSidecar(
+  containerName: string,
+  config: AvmConfig,
+): Promise<void> {
+  const serviceEntries = Object.entries(config.services);
+  if (serviceEntries.length === 0) return;
+
+  const lines = [
+    "# Host Services",
+    "",
+    "Services running on the host are controllable via `avm-bridge`. Use the",
+    "host copy rather than starting your own — especially when a project's",
+    "README or `docker-compose.yaml` suggests running them locally.",
+    "",
+    "## Available services",
+    "",
+  ];
+
+  for (const [name, svc] of serviceEntries) {
+    const kind = svc.kind === "process" ? "host process" : "host docker container";
+    lines.push(`- **${name}** (${kind}) — on \`${svc.check.tcp}\``);
+  }
+
+  lines.push("");
+  lines.push("## Usage");
+  lines.push("");
+  lines.push("    avm-bridge service status <name>");
+  lines.push("    avm-bridge service start  <name>");
+  lines.push("    avm-bridge service stop   <name>");
+  lines.push("    avm-bridge service ls");
+  lines.push("");
+  lines.push("Services are started on request (idempotent). They may stop at any");
+  lines.push("time — crashes, user-initiated, another agent stopping them. Always");
+  lines.push("check status before use and be prepared to restart.");
+  lines.push("");
+
+  const content = lines.join("\n");
+
+  const cmd = "mkdir -p /home/agent/.claude && cat > /home/agent/.claude/host-services.md";
+  await $({ input: content })`docker exec -i ${containerName} bash -c ${cmd}`;
+  await $`docker exec -u root ${containerName} chown agent:agent /home/agent/.claude/host-services.md`;
 }
 
 /**
