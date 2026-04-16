@@ -129,12 +129,8 @@ Semantics:
    check that `avm-<container_name>` resolves as a known host via
    `ssh -G avm-<container_name>`). If the SSH config is missing,
    return `FailedPrecondition` with a message like:
-   "avm SSH config is not installed on the host. This is a host-side
-   setup step that only the user can perform — do not attempt to fix
-   this yourself. Ask the user to run `avm ssh-config install` on
-   their host machine."
-   The error message is worded for the avm agent as the reader,
-   since it will be the one receiving and relaying it.
+   "avm SSH config is not installed. The user needs to run
+   `avm ssh-config install` on the host."
 6. Spawn detached, return the argv in `command` for observability.
 
 ## `avm-bridge` (in-container CLI)
