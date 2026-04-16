@@ -55,6 +55,9 @@ avm service stop <name>   # Stop a host service
 avm service status <name> # Show status of a host service
 ```
 
+Use `avm create`, `avm stop`, `avm clean`, `avm exec`, etc. for all
+container operations. Do not bypass avm and use docker directly.
+
 Images are infrastructure — excluded from `avm list` and never touched
 by `avm clean`. Rebuild them with `avm provision`.
 

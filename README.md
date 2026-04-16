@@ -369,8 +369,9 @@ in remote-SSH mode, connected to the requesting container. Requires
 
 ## Architecture Notes
 
-- **No state service.** `docker ps --filter label=avm=true` is the
-  source of truth. The CLI is a thin wrapper over `docker`.
+- **Daemon is the control plane.** The daemon tracks registered
+  containers, host secrets, and service state. Use `avm` commands
+  for all container operations.
 - **Containers are flexible workspaces.** Use them semi-persistently
   for a thread of work, or ephemerally for a single task. Name them
   whatever fits the way you work. Cleanup is manual.
