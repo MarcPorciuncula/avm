@@ -88,18 +88,20 @@ argument concatenation breaks anything non-trivial.
 ## File Structure
 
 ```
-bin/avm.mjs                     # global entrypoint wrapper (for pnpm link)
-cli/avm.ts                      # citty entrypoint, registers subcommands
-cli/commands/*.ts               # one file per subcommand
-lib/config.ts                   # paths + constants (AVM_HOME + derived)
-lib/config-file.ts              # parse ~/.avm/config.yaml, generate avm-link
-lib/session.ts                  # shared session mount + post-creation orchestration
-lib/vm.ts                       # Docker exec helpers, container wrappers, ID utilities
-lib/image.ts                    # Docker image builder; builds core + user images
+pnpm-workspace.yaml             # workspace config
+packages/avm/src/cli/avm.ts     # host CLI entrypoint
+packages/avm/src/cli/commands/   # host CLI subcommands
+packages/avm/src/lib/           # host CLI shared logic
+packages/avm-daemon/src/        # daemon server
+packages/avm-bridge/src/        # in-container CLI
+packages/shared/src/            # proto types + Connect client factories
+proto/avm/bridge/v1/            # bridge API protos
+proto/avm/host/v1/              # host API protos
 dockerfiles/core.Dockerfile     # core Docker image definition (avm-core:latest)
 templates/vm-claude.md          # seed for ~/.avm/system/claude/CLAUDE.md
 templates/vm-helpers.sh         # installed at /opt/avm/helpers.sh in every image
 examples/Dockerfile             # reference ~/.avm/Dockerfile
+examples/config.yaml            # reference ~/.avm/config.yaml
 skills/avm/SKILL.md             # host-side Claude Code skill (symlinked in by users)
 docs/superpowers/               # design specs and implementation plans
 ```

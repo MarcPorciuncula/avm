@@ -1,0 +1,36 @@
+# ~/.avm/config.yaml — example with host services
+
+# Editor for remote-SSH editor connections
+editor: cursor
+
+# Daemon configuration
+daemon:
+  port: 6970
+
+# Bind mounts applied to every session container
+volumes:
+  - pnpm-store:~/.local/share/pnpm/store
+
+# Host services — started/stopped on demand by agents via avm-bridge
+services:
+  chrome:
+    kind: process
+    command:
+      - /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - --remote-debugging-port=9222
+      - --user-data-dir=/tmp/chrome-devtools-profile
+    check:
+      tcp: 127.0.0.1:9222
+
+  # Example: postgres in a host docker container
+  # postgres:
+  #   kind: docker
+  #   container: local-postgres
+  #   check:
+  #     tcp: 127.0.0.1:5432
+
+# Per-repo config
+repos:
+  my-project:
+    symlinks:
+      - envs/my-project.env:.env
