@@ -1,7 +1,10 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["packages/avm/src/cli/avm.ts", "packages/avm-daemon/src/main.ts"],
+  entry: {
+    "avm": "packages/avm/src/cli/avm.ts",
+    "avm-daemon": "packages/avm-daemon/src/main.ts",
+  },
   format: "esm",
   platform: "node",
   deps: { neverBundle: [/^(?!@avm\/)[^./]/] },
