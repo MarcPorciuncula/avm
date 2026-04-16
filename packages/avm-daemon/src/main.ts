@@ -103,11 +103,13 @@ function main() {
       }
     } else if (url.startsWith("/avm.bridge.v1.")) {
       const token = extractBearerToken(req.headers.authorization);
-      if (!token || !verifyContainerToken(token, stateStore)) {
+      const containerName = token ? verifyContainerToken(token, stateStore) : null;
+      if (!containerName) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ code: "unauthenticated", message: "invalid or missing container token" }));
         return;
       }
+      req.headers["x-avm-container-name"] = containerName;
     }
 
     return connectHandler(req, res);
