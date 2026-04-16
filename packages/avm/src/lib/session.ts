@@ -124,10 +124,13 @@ export function ensureHostScaffolding(): void {
     mkdirSync(dir, { recursive: true });
   }
 
-  // The bind mount for ~/.claude.json is a file mount, so the file has to
-  // exist on both sides. Seed with `{}` so Claude Code sees valid JSON.
+  // File mounts require the source to exist before `docker run`.
+  // Seed with sensible defaults so mounts don't fail on first use.
   if (!existsSync(avmSystemClaudeJsonFile)) {
     writeFileSync(avmSystemClaudeJsonFile, "{}\n");
+  }
+  if (!existsSync(avmSystemGitConfigFile)) {
+    writeFileSync(avmSystemGitConfigFile, "");
   }
 
   // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
@@ -140,8 +143,7 @@ export function ensureHostScaffolding(): void {
  * and `docker exec`. Called after `docker run` or `docker start`.
  *
  * 1. Symlinks image-shipped skills into ~/.claude/skills/.
- * 2. Copies .gitconfig into the container (skips with warning if missing).
- * 3. Generates and installs the avm-link script.
+ * 2. Generates and installs the avm-link script.
  */
 export async function applyPostCreationSetup(
   containerName: string,
@@ -154,16 +156,6 @@ export async function applyPostCreationSetup(
     'ln -sfn "$d" /home/agent/.claude/skills/$(basename "$d"); ' +
     "done"
   }`;
-
-  // --- Copy .gitconfig ---
-  if (existsSync(avmSystemGitConfigFile)) {
-    await $`docker cp ${avmSystemGitConfigFile} ${containerName}:/home/agent/.gitconfig`;
-    await $`docker exec -u root ${containerName} chown agent:agent /home/agent/.gitconfig`;
-  } else {
-    console.warn(
-      "    [warn] no ~/.avm/system/credentials/git/.gitconfig — skipping .gitconfig copy",
-    );
-  }
 
   // --- Generate and install avm-link ---
   const script = generateAvmLinkScript(config);
@@ -257,6 +249,7 @@ export function getDockerMountArgs(config: AvmConfig): string[] {
     [avmSystemClaudeDir, "/home/agent/.claude"],
     [avmSystemClaudeJsonFile, "/home/agent/.claude.json"],
     [avmSystemClaudeMdFile, "/home/agent/CLAUDE.md"],
+    [avmSystemGitConfigFile, "/home/agent/.gitconfig"],
     [avmMirrorsDir, "/home/agent/mirrors"],
     [avmFilesDir, "/home/agent/.avm-files"],
     [bridgeBin, "/usr/local/bin/avm-bridge"],
