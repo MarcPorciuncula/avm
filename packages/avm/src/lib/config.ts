@@ -41,6 +41,13 @@ export const avmConfigFile = path.join(AVM_HOME, "config.yaml");
 export const avmSshConfigFile = path.join(AVM_HOME, "ssh_config");
 export const avmStateFile = path.join(AVM_HOME, "state.json");
 
+export const avmDaemonDir = path.join(AVM_HOME, "daemon");
+export const avmDaemonStateFile = path.join(avmDaemonDir, "state.json");
+export const avmDaemonPidFile = path.join(avmDaemonDir, "daemon.pid");
+export const avmDaemonLogFile = path.join(avmDaemonDir, "daemon.log");
+export const avmDaemonHostSecretFile = path.join(avmDaemonDir, "host.secret");
+export const DEFAULT_DAEMON_PORT = 6970;
+
 /**
  * Detect the host IANA timezone (e.g. "Australia/Sydney") by reading the
  * /etc/localtime symlink. Returns undefined if detection fails.

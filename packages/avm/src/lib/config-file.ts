@@ -7,10 +7,27 @@ import { avmConfigFile } from "./config.ts";
 
 export type EditorChoice = "code" | "cursor";
 
+export interface DaemonConfig {
+  port: number;
+}
+
+export interface ServiceDefinition {
+  kind: "process" | "docker";
+  command?: string[];
+  container?: string;
+  check: ServiceCheck;
+}
+
+export interface ServiceCheck {
+  tcp: string;
+}
+
 export interface AvmConfig {
   editor?: EditorChoice;
+  daemon: DaemonConfig;
   volumes: VolumeMount[];
   repos: Record<string, RepoConfig>;
+  services: Record<string, ServiceDefinition>;
 }
 
 export interface VolumeMount {
@@ -40,7 +57,7 @@ export interface SymlinkMount {
  */
 export function loadAvmConfig(): AvmConfig {
   if (!existsSync(avmConfigFile)) {
-    return { volumes: [], repos: {} };
+    return { daemon: { port: 6970 }, volumes: [], repos: {}, services: {} };
   }
   const raw = readFileSync(avmConfigFile, "utf-8");
   return parseAvmConfig(raw);
@@ -109,7 +126,7 @@ export function generateAvmLinkScript(config: AvmConfig): string {
 
 // ---------- Validation ----------
 
-const TOP_LEVEL_KEYS = new Set(["editor", "volumes", "repos"]);
+const TOP_LEVEL_KEYS = new Set(["editor", "volumes", "repos", "daemon", "services"]);
 const VALID_EDITORS = new Set<string>(["code", "cursor"]);
 const REPO_KEYS = new Set(["symlinks"]);
 
@@ -130,9 +147,11 @@ function validate(data: unknown): AvmConfig {
   }
 
   const editor = parseEditor(obj.editor);
+  const daemon = parseDaemon(obj.daemon);
   const volumes = parseVolumes(obj.volumes);
   const repos = parseRepos(obj.repos);
-  return { editor, volumes, repos };
+  const services = parseServices(obj.services);
+  return { editor, daemon, volumes, repos, services };
 }
 
 function parseEditor(raw: unknown): EditorChoice | undefined {
@@ -237,6 +256,161 @@ function splitShortForm(
     );
   }
   return { source, target };
+}
+
+const DAEMON_KEYS = new Set(["port"]);
+const SERVICE_KEYS = new Set(["kind", "command", "container", "check"]);
+const CHECK_KEYS = new Set(["tcp"]);
+const VALID_SERVICE_KINDS = new Set(["process", "docker"]);
+
+function parseDaemon(raw: unknown): DaemonConfig {
+  if (raw === undefined) return { port: 6970 };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "daemon" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!DAEMON_KEYS.has(key)) {
+      throw new Error(
+        `${avmConfigFile}: unknown key "${key}" under daemon. Allowed: ${[...DAEMON_KEYS].join(", ")}.`,
+      );
+    }
+  }
+  let port = 6970;
+  if (obj.port !== undefined) {
+    if (
+      typeof obj.port !== "number" ||
+      !Number.isInteger(obj.port) ||
+      obj.port < 1 ||
+      obj.port > 65535
+    ) {
+      throw new Error(
+        `${avmConfigFile}: daemon.port must be an integer 1–65535 (got ${describe(obj.port)}).`,
+      );
+    }
+    port = obj.port;
+  }
+  return { port };
+}
+
+function parseServices(
+  raw: unknown,
+): Record<string, ServiceDefinition> {
+  if (raw === undefined) return {};
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "services" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const out: Record<string, ServiceDefinition> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+      throw new Error(
+        `${avmConfigFile}: services.${name} — service name must contain only letters, digits, dots, underscores, and hyphens.`,
+      );
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(
+        `${avmConfigFile}: services.${name} must be a mapping (got ${describe(value)}).`,
+      );
+    }
+    const svcObj = value as Record<string, unknown>;
+    for (const key of Object.keys(svcObj)) {
+      if (!SERVICE_KEYS.has(key)) {
+        throw new Error(
+          `${avmConfigFile}: unknown key "${key}" under services.${name}. Allowed: ${[...SERVICE_KEYS].join(", ")}.`,
+        );
+      }
+    }
+    // kind: required
+    if (svcObj.kind === undefined) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.kind is required.`,
+      );
+    }
+    if (
+      typeof svcObj.kind !== "string" ||
+      !VALID_SERVICE_KINDS.has(svcObj.kind)
+    ) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.kind must be one of: ${[...VALID_SERVICE_KINDS].join(", ")} (got ${describe(svcObj.kind)}).`,
+      );
+    }
+    const kind = svcObj.kind as "process" | "docker";
+
+    // kind-specific fields
+    let command: string[] | undefined;
+    let container: string | undefined;
+    if (kind === "process") {
+      if (svcObj.command === undefined) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.command is required when kind is "process".`,
+        );
+      }
+      if (
+        !Array.isArray(svcObj.command) ||
+        svcObj.command.length === 0 ||
+        !svcObj.command.every((c: unknown) => typeof c === "string")
+      ) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.command must be a non-empty list of strings (got ${describe(svcObj.command)}).`,
+        );
+      }
+      command = svcObj.command as string[];
+    } else {
+      // kind === "docker"
+      if (svcObj.container === undefined) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.container is required when kind is "docker".`,
+        );
+      }
+      if (typeof svcObj.container !== "string" || svcObj.container.length === 0) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.container must be a non-empty string (got ${describe(svcObj.container)}).`,
+        );
+      }
+      container = svcObj.container;
+    }
+
+    // check: required
+    if (svcObj.check === undefined) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.check is required.`,
+      );
+    }
+    if (
+      svcObj.check === null ||
+      typeof svcObj.check !== "object" ||
+      Array.isArray(svcObj.check)
+    ) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.check must be a mapping (got ${describe(svcObj.check)}).`,
+      );
+    }
+    const checkObj = svcObj.check as Record<string, unknown>;
+    for (const key of Object.keys(checkObj)) {
+      if (!CHECK_KEYS.has(key)) {
+        throw new Error(
+          `${avmConfigFile}: unknown key "${key}" under services.${name}.check. Allowed: ${[...CHECK_KEYS].join(", ")}.`,
+        );
+      }
+    }
+    if (checkObj.tcp === undefined) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.check.tcp is required.`,
+      );
+    }
+    if (typeof checkObj.tcp !== "string" || checkObj.tcp.length === 0) {
+      throw new Error(
+        `${avmConfigFile}: services.${name}.check.tcp must be a non-empty "host:port" string (got ${describe(checkObj.tcp)}).`,
+      );
+    }
+
+    out[name] = { kind, command, container, check: { tcp: checkObj.tcp } };
+  }
+  return out;
 }
 
 function describe(value: unknown): string {
