@@ -6,19 +6,19 @@ Depends on: `2026-04-16-host-services-design.md`
 
 ## Problem
 
-Inside an avm container, an agent frequently wants to say "open this
-file in the user's editor so they can review it." The editor
-(`cursor` / `code`) lives on the host, not inside the container, and
-the container has no access to the host binary. Today this is simply
-impossible from inside the sandbox — the user has to open the file
-manually.
+When the user asks the in-avm agent to "open this file in my editor,"
+the agent can't do it. The editor (`cursor` / `code`) is on the host,
+not inside the container, and the sandbox has no access to the host
+binary. The user ends up copy-pasting the path into their terminal
+and opening it themselves — breaking flow, and defeating the point of
+directing the agent in the first place.
 
 The file path is only meaningful inside the container. The editor has
 to be launched in remote-SSH mode, pointed at the corresponding avm
-container, and handed the same path. `avm ssh-config` already provides
-the SSH remote (`ssh avm-<id>` works when installed), so the mechanical
-pieces exist — what's missing is a way for the container to *request*
-the editor open.
+container, and handed that in-container path. `avm ssh-config` already
+provides the SSH remote (`ssh avm-<id>` works when installed), so the
+mechanical pieces exist — what's missing is a way for the agent,
+acting on the user's instruction, to *request* the editor open.
 
 ## Goals
 
@@ -161,16 +161,16 @@ the host-services spec with a second section:
 ```markdown
 ## Opening files on the host
 
-To open a file in the user's editor, use `avm-host editor open`.
-The daemon connects the editor to this container via remote SSH —
-you do not need to configure anything.
+When the user asks you to open a file in their editor, use
+`avm-host editor open`. The daemon connects the editor to this
+container via remote SSH — you do not need to configure anything.
 
     avm-host editor open /home/agent/work/my-repo/src/foo.ts
     avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42
     avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42 --column 10
 
-Use this when you want the user to review a specific location, not
-every time you change a file.
+Only invoke this when the user has asked for it. Do not auto-open
+files you happen to be editing.
 ```
 
 `templates/vm-claude.md` already (via the host-services spec) tells
