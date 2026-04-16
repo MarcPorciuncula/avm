@@ -1,0 +1,240 @@
+# Host Editor Invocation — Design
+
+Date: 2026-04-16
+Status: Draft
+Depends on: `2026-04-16-host-services-design.md`
+
+## Problem
+
+Inside an avm container, an agent frequently wants to say "open this
+file in the user's editor so they can review it." The editor
+(`cursor` / `code`) lives on the host, not inside the container, and
+the container has no access to the host binary. Today this is simply
+impossible from inside the sandbox — the user has to open the file
+manually.
+
+The file path is only meaningful inside the container. The editor has
+to be launched in remote-SSH mode, pointed at the corresponding avm
+container, and handed the same path. `avm ssh-config` already provides
+the SSH remote (`ssh avm-<id>` works when installed), so the mechanical
+pieces exist — what's missing is a way for the container to *request*
+the editor open.
+
+## Goals
+
+- Inner-container action: `avm-host editor open <path>` (with optional
+  line/column) triggers `cursor --remote ssh-remote+avm-<id> <path>`
+  (or the `code` equivalent) on the host.
+- Per-container identity: the daemon, not the caller, determines which
+  remote SSH target to use. A container cannot open files "as" another
+  container.
+- Reuse the host daemon, shim binary, proto surface, auth, and
+  versioned API delivered by the host-services spec. This is a new
+  RPC, not a new component.
+
+## Non-Goals
+
+- No editor process management. We launch and forget; the editor window
+  handles its own lifecycle.
+- No inverse direction (host → container file picker, or "pull this
+  file out into a host editor"). Editor always opens on the host,
+  connected to the container via remote SSH.
+- No support for editors other than Cursor and VS Code in v1. The
+  daemon reads the existing `editor` top-level field in
+  `~/.avm/config.yaml` (already `code | cursor`). Other editors can
+  be added later.
+- No argument composition (workspace files, multi-file sessions). First
+  slice is a single path with optional line/column. Extensions later.
+
+## Prerequisites
+
+This spec assumes the host-services infrastructure is already in place:
+
+- `avm daemon` running (launchd agent or lazy-spawned).
+- `avm-host` shim installed in every container.
+- `$AVM_HOST_PORT`, `$AVM_HOST_TOKEN`, `$AVM_CONTAINER_NAME` exported
+  into containers by `avm create`.
+- Connect auth interceptor already attaches `container_name` to
+  request context.
+- `avm ssh-config` installed by the user (so `avm-<id>` resolves as an
+  SSH host on the machine).
+
+The editor feature adds nothing to container creation — it only adds a
+new RPC, a new shim subcommand, and a new daemon handler.
+
+## RPC
+
+Add a sibling service alongside `ServicesService` in the same proto
+package.
+
+```proto
+// proto/avm/v1/editor.proto
+syntax = "proto3";
+package avm.v1;
+
+service EditorService {
+  rpc OpenFile(OpenFileRequest) returns (OpenFileResponse);
+}
+
+message OpenFileRequest {
+  string path = 1;      // absolute path inside the container
+  int32  line = 2;      // optional, 1-based; 0 means unset
+  int32  column = 3;    // optional, 1-based; 0 means unset
+  string editor = 4;    // optional override: "cursor" | "code"; empty = config default
+}
+
+message OpenFileResponse {
+  string editor = 1;    // which editor was invoked
+  string ssh_host = 2;  // e.g. "avm-abcde"
+  string command = 3;   // exact argv (for debugging / logs)
+}
+```
+
+Semantics:
+
+- `path` must be absolute. Relative paths are rejected at the shim;
+  the shim resolves them against `$PWD` before sending. Rationale:
+  the daemon shouldn't guess which working directory the caller
+  intended.
+- `line` / `column` map to the editor's `--goto` / `-g` convention
+  (`<path>:<line>:<col>`).
+- `editor` is an optional override. If empty, the daemon uses
+  `config.editor` (existing field, defaults to nothing — in which case
+  the RPC errors with `FailedPrecondition`).
+- Invocation is fire-and-forget on the host side (`spawn` + detach).
+  The response is returned as soon as the host command has been
+  launched. Editor errors surface as editor UI, not via this RPC.
+
+## Daemon behavior
+
+`OpenFile`:
+
+1. Read `container_name` from the authenticated request context
+   (populated by the auth interceptor from the bearer token).
+2. Resolve the editor: request override → `config.editor` → error.
+3. Validate the editor binary exists on `PATH` (`which cursor` /
+   `which code`). If not, return `FailedPrecondition` with a message
+   pointing the user at the install-shell-command step of the editor.
+4. Build the argv:
+
+   ```
+   <editor> --remote ssh-remote+<container_name> --goto <path>:<line>:<col>
+   ```
+
+   (`--goto` omitted if line/column are unset.) `<container_name>` is
+   something like `avm-abcde`; users have `avm ssh-config` set up so
+   this resolves as a valid SSH host.
+5. Spawn detached, return the argv in `command` for observability.
+
+The daemon does **not** check whether `avm ssh-config install` has
+been run — it assumes the user has done so and the editor's remote-SSH
+extension is able to resolve `avm-<id>`. If it hasn't, the editor
+itself surfaces the error to the user, which is the right UX.
+
+## Shim (`avm-host`)
+
+New subcommand tree:
+
+```
+avm-host editor open <path> [--line <n>] [--column <n>] [--editor cursor|code]
+```
+
+Behavior:
+
+- Resolve `<path>` to an absolute path using the shim's CWD. Pass it
+  through unchanged if already absolute.
+- Send `OpenFile` with the resolved path + optional line/column.
+- Print a concise one-line confirmation on success (e.g.
+  `opened cursor on ssh-remote+avm-abcde`), exit 0.
+- On RPC failure, print the error and exit non-zero. `FailedPrecondition`
+  errors (missing editor binary, unconfigured editor) print the
+  daemon's message verbatim so the user sees the actionable remediation.
+
+Shorthand: `avm-host open <path>` could alias `editor open`. Not in v1;
+keep the tree explicit.
+
+## Agent awareness
+
+Extend the generated `~/.claude/host-services.md` sidecar produced by
+the host-services spec with a second section:
+
+```markdown
+## Opening files on the host
+
+To open a file in the user's editor, use `avm-host editor open`.
+The daemon connects the editor to this container via remote SSH —
+you do not need to configure anything.
+
+    avm-host editor open /home/agent/work/my-repo/src/foo.ts
+    avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42
+    avm-host editor open /home/agent/work/my-repo/src/foo.ts --line 42 --column 10
+
+Use this when you want the user to review a specific location, not
+every time you change a file.
+```
+
+`templates/vm-claude.md` already (via the host-services spec) tells
+the agent to consult `~/.claude/host-services.md`, so no further
+change is needed there.
+
+## Config
+
+No new top-level keys. Reuses the existing `editor` field in
+`~/.avm/config.yaml`:
+
+```yaml
+editor: cursor    # or "code"
+```
+
+If the field is unset and the shim omits `--editor`, the RPC returns
+`FailedPrecondition` with "configure `editor:` in ~/.avm/config.yaml
+or pass --editor."
+
+## File Changes
+
+New:
+- `proto/avm/v1/editor.proto` — EditorService
+- `lib/daemon/editor.ts` — `OpenFile` handler
+
+Modified:
+- `buf.gen.yaml` — already generates whole package; nothing to change
+- `lib/daemon/server.ts` — register `EditorService`
+- `cli/avm-host.ts` — add `editor open` subcommand
+- `lib/session.ts` — extend the generated `host-services.md` template
+  with the editor section
+- `README.md` — brief mention under the Host Services section
+
+No changes to `cli/commands/create.ts` — container env vars already set
+by the host-services spec are sufficient.
+
+## Open Questions / Implementation Notes
+
+- **`--goto` vs `:<line>:<col>` syntax.** Both Cursor and VS Code
+  accept `--goto <file>:<line>:<col>`. We'll use that uniformly. If a
+  future editor doesn't, the per-editor argv composition will move
+  into a small strategy table inside `lib/daemon/editor.ts`.
+- **Tilde expansion.** The shim resolves `~` relative to the container
+  user's home before sending. The daemon does not expand `~` — all
+  paths arriving at the daemon are already absolute.
+- **Already-open windows.** Cursor/VS Code deduplicate by remote +
+  workspace, so repeated calls reuse the existing window. No extra
+  logic needed from us.
+- **`avm ssh-config` not installed.** If `~/.ssh/config` doesn't
+  include the avm config, the editor's remote-SSH extension will fail
+  to resolve `avm-<id>`. The daemon could detect this and error early,
+  but the editor's error message is already clear, and detection
+  requires probing the user's SSH config. Defer unless user reports
+  confusion.
+
+## Success Criteria
+
+- From inside a container: `avm-host editor open /home/agent/.bashrc`
+  opens `.bashrc` in the user's configured editor, connected via
+  remote SSH to that container.
+- Line/column arguments position the cursor correctly.
+- Calling `OpenFile` without `AVM_HOST_TOKEN` (unauthenticated) is
+  rejected at the auth interceptor.
+- A container's `OpenFile` request cannot cause the editor to open as
+  if connected to a different container — the daemon ignores any
+  caller-supplied container hint and uses the token-resolved identity
+  only.
