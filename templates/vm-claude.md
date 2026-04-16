@@ -22,6 +22,10 @@ before continuing. To use Docker, consult the avm-docker skill before
 continuing. To use host services, consult the avm-services skill. When the user asks you to open a file in their
 editor, consult the avm-editor skill.
 
+Networking is fully open — any port you listen on inside the container
+is directly accessible from the host at localhost. No port forwarding
+or SSH tunnels are needed.
+
 You have free reign over this sandbox, but exercise care with anything
 that touches external systems — pushing to GitHub, running CLIs or MCPs
 that interact with external services, etc.
