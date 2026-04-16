@@ -26,10 +26,7 @@ export const AVM_HOME = path.join(os.homedir(), ".avm");
 
 export const avmSystemDir = path.join(AVM_HOME, "system");
 export const avmSystemSshDir = path.join(avmSystemDir, "credentials/ssh");
-export const avmSystemGitConfigFile = path.join(
-  avmSystemDir,
-  "credentials/git/.gitconfig",
-);
+export const avmSystemGitDir = path.join(avmSystemDir, "credentials/git");
 export const avmSystemClaudeDir = path.join(avmSystemDir, "claude");
 export const avmSystemClaudeJsonFile = path.join(avmSystemDir, "claude.json");
 export const avmSystemClaudeMdFile = path.join(avmSystemDir, "CLAUDE.md");

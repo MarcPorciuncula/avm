@@ -54,10 +54,12 @@ argument concatenation breaks anything non-trivial.
 
 ## Project Principles
 
-- **Thin wrapper over `docker`.** The CLI orchestrates Docker containers.
-  It does not maintain its own state, database, or long-running service.
-  `docker ps --filter label=avm=true` is the source of truth for what
-  containers exist. Anything richer than that is explicitly out of scope.
+- **Use avm commands for all container operations.** The daemon
+  maintains state (registered containers, host secrets, etc.) that
+  must stay in sync with Docker. Use `avm create`, `avm stop`,
+  `avm clean`, `avm exec`, etc. Do not bypass avm and use docker
+  directly unless avm itself is genuinely broken and you are
+  debugging it.
 - **Containers are flexible workspaces.** Users may keep them around
   semi-persistently for a thread of work, or spin them up ephemerally
   for a single task and clean them up immediately. Don't impose a

@@ -22,7 +22,7 @@ import {
   avmSystemClaudeJsonFile,
   avmSystemClaudeMdFile,
   avmSystemDir,
-  avmSystemGitConfigFile,
+  avmSystemGitDir,
   avmSystemSshDir,
   avmVolumesDir,
 } from "./config.ts";
@@ -113,7 +113,7 @@ export function ensureHostScaffolding(): void {
   const requiredDirs = [
     avmSystemDir,
     avmSystemSshDir,
-    path.dirname(avmSystemGitConfigFile),
+    avmSystemGitDir,
     avmSystemClaudeDir,
     avmMirrorsDir,
     avmVolumesDir,
@@ -129,10 +129,6 @@ export function ensureHostScaffolding(): void {
   if (!existsSync(avmSystemClaudeJsonFile)) {
     writeFileSync(avmSystemClaudeJsonFile, "{}\n");
   }
-  if (!existsSync(avmSystemGitConfigFile)) {
-    writeFileSync(avmSystemGitConfigFile, "");
-  }
-
   // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
   const config = loadAvmConfig();
   generateRootClaudeMd(config);
@@ -235,7 +231,7 @@ export function getDockerMountArgs(config: AvmConfig): string[] {
     [avmSystemClaudeDir, "/home/agent/.claude"],
     [avmSystemClaudeJsonFile, "/home/agent/.claude.json"],
     [avmSystemClaudeMdFile, "/home/agent/CLAUDE.md"],
-    [avmSystemGitConfigFile, "/home/agent/.gitconfig"],
+    [avmSystemGitDir, "/home/agent/.config/git"],
     [avmMirrorsDir, "/home/agent/mirrors"],
     [avmFilesDir, "/home/agent/.avm-files"],
     [bridgeBin, "/usr/local/bin/avm-bridge"],
