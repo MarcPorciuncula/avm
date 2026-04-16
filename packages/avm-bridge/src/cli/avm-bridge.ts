@@ -1,4 +1,5 @@
 import { defineCommand, runMain } from "citty";
+import { editorCommand } from "./commands/editor.ts";
 import { serviceCommand } from "./commands/service.ts";
 
 const main = defineCommand({
@@ -7,6 +8,7 @@ const main = defineCommand({
     description: "avm bridge: coordinate with the host control plane.",
   },
   subCommands: {
+    editor: editorCommand,
     service: serviceCommand,
   },
 });
