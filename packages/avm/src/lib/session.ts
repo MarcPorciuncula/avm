@@ -145,6 +145,18 @@ export async function applyPostCreationSetup(
   containerName: string,
   config: AvmConfig,
 ): Promise<void> {
+  // --- Persist AVM_* env vars for SSH sessions ---
+  // Docker container env vars (set via `docker run -e`) are only inherited by
+  // `docker exec` sessions. SSH sessions start fresh shells that don't see
+  // them. Append them to /etc/environment (read by pam_env for all session
+  // types) so every SSH session — interactive, non-interactive, login or
+  // not — picks them up.
+  await $`docker exec -u root ${containerName} bash -c ${
+    // Remove any existing AVM_ lines first (idempotent on restart), then append current values.
+    'sed -i "/^AVM_/d" /etc/environment && ' +
+    'env | grep "^AVM_" >> /etc/environment'
+  }`;
+
   // --- Symlink image-shipped skills into ~/.claude/skills/ ---
   await $`docker exec ${containerName} bash -c ${
     "mkdir -p /home/agent/.claude/skills && " +
