@@ -64,13 +64,14 @@ new RPC, a new shim subcommand, and a new daemon handler.
 
 ## RPC
 
-Add a sibling service alongside `ServicesService` in the same proto
-package.
+Add a sibling service alongside `ServicesService` in the `avm.bridge.v1`
+proto package. This is a bridge API — called by avm-bridge with
+container token auth.
 
 ```proto
-// proto/avm/v1/editor.proto
+// proto/avm/bridge/v1/editor.proto
 syntax = "proto3";
-package avm.v1;
+package avm.bridge.v1;
 
 service EditorService {
   rpc OpenFile(OpenFileRequest) returns (OpenFileResponse);
@@ -193,7 +194,7 @@ or pass --editor."
 ## File Changes
 
 New:
-- `proto/avm/v1/editor.proto` — EditorService
+- `proto/avm/bridge/v1/editor.proto` — `avm.bridge.v1.EditorService`
 - `packages/avm-daemon/src/editor.ts` — `OpenFile` handler
 
 Modified:

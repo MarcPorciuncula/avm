@@ -90,14 +90,17 @@ packages/
     package.json
     src/
       cli/              # citty entrypoint + subcommands (service, editor)
-  shared/               # proto types, Connect client factory
+  shared/               # proto types, Connect client factories
     package.json
     src/
-      client.ts         # Connect client factory (used by avm, avm-bridge, and avm-daemon tests)
+      bridge-client.ts  # Connect client for bridge API (used by avm-bridge)
+      host-client.ts    # Connect client for host API (used by avm)
       gen/              # Buf-generated TypeScript from protos
 proto/                  # .proto source files (not a package; Buf generates into packages/shared)
-  avm/v1/
+  avm/bridge/v1/        # bridge API — called by avm-bridge (container token auth)
     services.proto
+  avm/host/v1/          # host API — called by avm CLI (host secret auth)
+    containers.proto
 buf.yaml
 buf.gen.yaml
 ```
@@ -162,15 +165,17 @@ No socket mounts, no SSH, no extra privileges.
 └──────────────────────────────────────────────────┘
 ```
 
-### RPC surface (v1)
+### RPC surface
 
-Protos live at `proto/avm/v1/services.proto`. Buf is the codegen
-toolchain (`buf.yaml`, `buf.gen.yaml`); generated TypeScript lands in
-`packages/shared/src/gen/` and is consumed by both packages.
+Two separate proto packages, each with its own auth domain. Buf
+generates TypeScript for both into `packages/shared/src/gen/`.
+
+#### Bridge API (`avm.bridge.v1`) — called by avm-bridge, container token auth
 
 ```proto
+// proto/avm/bridge/v1/services.proto
 syntax = "proto3";
-package avm.v1;
+package avm.bridge.v1;
 
 service ServicesService {
   rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
@@ -183,8 +188,8 @@ message Service {
   string name      = 1;
   Kind   kind      = 2;
   State  state     = 3;
-  int32  pid       = 4;  // only for kind=PROCESS and state=UP
-  string last_error = 5; // empty when healthy
+  int32  pid       = 4;
+  string last_error = 5;
   google.protobuf.Timestamp last_check_at = 6;
 }
 
@@ -192,42 +197,22 @@ enum Kind  { KIND_UNSPECIFIED = 0; PROCESS = 1; DOCKER = 2; }
 enum State { STATE_UNSPECIFIED = 0; UP = 1; DOWN = 2; STARTING = 3; STOPPING = 4; UNKNOWN = 5; }
 ```
 
-All four RPCs are idempotent. `StartService` on an up service is a
-no-op that returns the current state. `StopService` on a down service
-is the same. "Is it actually up?" is answered by the health check, not
+Future additions to this package: `EditorService` (see sibling spec).
+
+All RPCs are idempotent. `StartService` on an up service is a no-op
+that returns the current state. `StopService` on a down service is
+the same. "Is it actually up?" is answered by the health check, not
 by daemon bookkeeping — so a service killed out-of-band reports `DOWN`
 on the next call.
 
-### Authentication
-
-The daemon's API has two distinct auth domains with separate callers,
-separate trust levels, and separate token mechanisms.
-
-#### Auth domain 1: Host CLI → daemon (admin)
-
-The host CLI (`avm`) calls admin RPCs: `RegisterContainer`,
-`UnregisterContainer`, and any future management operations. These
-must be restricted to the host CLI — a container must never be able
-to register or unregister other containers.
-
-**Host secret.**
-
-- The daemon generates a 32-byte random secret (base64url) on first
-  start and persists it at `~/.avm/daemon/host.secret` (`0600`).
-- This file lives under `~/.avm/daemon/`, which is **never mounted**
-  into avm containers. Containers cannot read it.
-- The host CLI reads the secret from disk and sends it as
-  `Authorization: Bearer <host-secret>` on every admin RPC.
-- The daemon validates the bearer token against the on-disk secret.
-  Mismatch → `Unauthenticated`.
-- If the secret file doesn't exist (daemon hasn't started yet, or was
-  reset), the host CLI errors with a clear message pointing the user
-  at `avm daemon start`.
-
-**Admin RPC surface** (`proto/avm/v1/admin.proto`):
+#### Host API (`avm.host.v1`) — called by host CLI, host secret auth
 
 ```proto
-service AdminService {
+// proto/avm/host/v1/containers.proto
+syntax = "proto3";
+package avm.host.v1;
+
+service ContainerService {
   rpc RegisterContainer(RegisterContainerRequest)     returns (RegisterContainerResponse);
   rpc UnregisterContainer(UnregisterContainerRequest) returns (UnregisterContainerResponse);
 }
@@ -238,36 +223,72 @@ message UnregisterContainerRequest { string name = 1; }
 message UnregisterContainerResponse {}
 ```
 
-#### Auth domain 2: avm-bridge → daemon (container)
+Future additions to this package: service management parity RPCs
+(so `avm service ls` on the host calls the same daemon), container
+introspection, etc.
 
-The in-container CLI (`avm-bridge`) calls container RPCs:
-`ListServices`, `GetService`, `StartService`, `StopService`,
-`OpenFile` (editor), and future per-container operations. These
-require proof that the caller is a specific registered container.
+#### Shared types
+
+Messages that appear in both APIs (e.g. `Service`, `Kind`, `State`)
+live in a shared `avm.common.v1` package that both import, avoiding
+duplication. Alternatively, each package owns its own copies if the
+shapes diverge — to be decided during implementation based on whether
+the host API needs different fields (e.g. richer metadata for
+monitoring).
+
+### Authentication
+
+The daemon's API has two distinct auth domains with separate callers,
+separate trust levels, and separate token mechanisms.
+
+#### Auth domain 1: Host CLI → daemon (`avm.host.v1`)
+
+The host CLI calls `avm.host.v1` RPCs (`ContainerService`, and future
+host-side management). These must be restricted to the host CLI — a
+container must never be able to call them.
+
+**Host secret.**
+
+- The daemon generates a 32-byte random secret (base64url) on first
+  start and persists it at `~/.avm/daemon/host.secret` (`0600`).
+- This file lives under `~/.avm/daemon/`, which is **never mounted**
+  into avm containers. Containers cannot read it.
+- The host CLI reads the secret from disk and sends it as
+  `Authorization: Bearer <host-secret>` on every `avm.host.v1` RPC.
+- The daemon validates the bearer token against the on-disk secret.
+  Mismatch → `Unauthenticated`.
+- If the secret file doesn't exist (daemon hasn't started yet, or was
+  reset), the host CLI errors with a clear message pointing the user
+  at `avm daemon start`.
+
+#### Auth domain 2: avm-bridge → daemon (`avm.bridge.v1`)
+
+avm-bridge calls `avm.bridge.v1` RPCs (`ServicesService`, `EditorService`,
+and future per-container operations). These require proof that the
+caller is a specific registered container.
 
 **Container token lifecycle.**
 
 - `avm create` ensures the daemon is running, then calls
-  `RegisterContainer(name)` (authenticated with the host secret) →
-  the daemon generates a 32-byte random token (base64url), persists
-  it in its state store, and returns it. The host CLI passes the
-  token to `docker run -e AVM_HOST_TOKEN=<value>`.
+  `RegisterContainer(name)` (via `avm.host.v1`, authenticated with
+  the host secret) → the daemon generates a 32-byte random token
+  (base64url), persists it in its state store, and returns it. The
+  host CLI passes the token to `docker run -e AVM_HOST_TOKEN=<value>`.
 - `avm stop` / `avm start` don't touch the token — env vars persist
   with the container across `docker stop`/`docker start`, so the
   token survives.
-- `avm clean <id>` calls `UnregisterContainer(name)` (authenticated
-  with the host secret), which revokes the token from the daemon's
-  state store.
+- `avm clean <id>` calls `UnregisterContainer(name)` (via
+  `avm.host.v1`, authenticated with the host secret), which revokes
+  the token from the daemon's state store.
 
 **Container handshake.**
 
 - avm-bridge sets `Authorization: Bearer $AVM_HOST_TOKEN` on every
-  Connect request. If the env var is missing it exits with a clear
-  error — this can only happen if the token was never provisioned
-  (broken `avm create`) or the user manually unset it.
-- A Connect interceptor in the daemon looks up the token; on match
-  it attaches `{ container_name }` to the request context, on miss it
-  returns `Unauthenticated`.
+  `avm.bridge.v1` request. If the env var is missing it exits with a
+  clear error.
+- A Connect interceptor on the `avm.bridge.v1` routes looks up the
+  token; on match it attaches `{ container_name }` to the request
+  context, on miss it returns `Unauthenticated`.
 - `ServicesService` requires container auth but is identity-agnostic —
   any authenticated container may list/start/stop any service. The
   identity is recorded in logs only.
@@ -276,10 +297,10 @@ require proof that the caller is a specific registered container.
 
 #### Summary
 
-| Caller     | Token source                      | Mounted into containers? | Calls                    |
-|------------|-----------------------------------|--------------------------|--------------------------|
-| Host CLI   | `~/.avm/daemon/host.secret` file  | No (never)               | AdminService             |
-| avm-bridge | `$AVM_HOST_TOKEN` env var         | Yes (env-only)           | ServicesService, EditorService |
+| Caller     | Token source                      | Mounted into containers? | Proto package    |
+|------------|-----------------------------------|--------------------------|------------------|
+| Host CLI   | `~/.avm/daemon/host.secret` file  | No (never)               | `avm.host.v1`    |
+| avm-bridge | `$AVM_HOST_TOKEN` env var         | Yes (env-only)           | `avm.bridge.v1`  |
 
 #### Storage
 
@@ -529,8 +550,8 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 - `packages/shared/package.json` — proto types + Connect client factory
 
 ### Proto + codegen (new)
-- `proto/avm/v1/services.proto` — ServicesService RPCs (container auth)
-- `proto/avm/v1/admin.proto` — AdminService RPCs (host auth)
+- `proto/avm/bridge/v1/services.proto` — `avm.bridge.v1.ServicesService` (container token auth)
+- `proto/avm/host/v1/containers.proto` — `avm.host.v1.ContainerService` (host secret auth)
 - `buf.yaml`, `buf.gen.yaml` — Buf config; generates into `packages/shared/src/gen/`
 
 ### `packages/avm-daemon` — new files
@@ -559,9 +580,10 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 - `src/cli/commands/service.ts` — `avm-bridge service [ls|status|start|stop]`
 
 ### `packages/shared` — new files
-- `src/client.ts` — Connect client factory (used by `avm`, `avm-bridge`, and `avm-daemon` tests)
+- `src/bridge-client.ts` — Connect client for `avm.bridge.v1` (used by avm-bridge)
+- `src/host-client.ts` — Connect client for `avm.host.v1` (used by avm CLI)
 - `src/config.ts` — shared config types (service definitions, daemon config)
-- `src/gen/` — Buf-generated TypeScript from protos
+- `src/gen/` — Buf-generated TypeScript from both proto packages
 
 ### Root-level changes
 - `examples/config.yaml` — worked example including the Chrome block
