@@ -356,6 +356,18 @@ currently `tcp` health checks are supported.
 
 See `examples/config.yaml` for a full worked example.
 
+### Editor integration
+
+Agents inside containers can open files in the user's host editor:
+
+```bash
+avm-bridge editor open /home/agent/work/my-repo/src/foo.ts --line 42
+```
+
+This launches the editor (configured via `editor:` in `~/.avm/config.yaml`)
+in remote-SSH mode, connected to the requesting container. Requires
+`avm ssh-config install`.
+
 ## Architecture Notes
 
 - **No state service.** `docker ps --filter label=avm=true` is the

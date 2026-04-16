@@ -238,6 +238,20 @@ export function generateRootClaudeMd(config: AvmConfig): void {
   }
 
   lines.push("");
+  lines.push("## Opening files on the host");
+  lines.push("");
+  lines.push("When the user asks you to open a file in their editor, use");
+  lines.push("`avm-bridge editor open`. The daemon connects the editor to this");
+  lines.push("container via remote SSH — you do not need to configure anything.");
+  lines.push("");
+  lines.push("    avm-bridge editor open /path/to/file.ts");
+  lines.push("    avm-bridge editor open /path/to/file.ts --line 42");
+  lines.push("    avm-bridge editor open /path/to/file.ts --line 42 --column 10");
+  lines.push("");
+  lines.push("Only invoke this when the user has asked for it. Do not auto-open");
+  lines.push("files you happen to be editing.");
+
+  lines.push("");
 
   writeFileSync(avmSystemClaudeMdFile, lines.join("\n"));
 }
