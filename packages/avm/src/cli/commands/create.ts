@@ -10,6 +10,7 @@ import {
   applyPostCreationSetup,
   ensureHostScaffolding,
   getDockerMountArgs,
+  registerContainer,
 } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -83,6 +84,9 @@ export const createCommand = defineCommand({
 
     const sshPort = sshPortForId(shortIdOf(vmName));
 
+    console.log(`==> Registering container with daemon...`);
+    const token = await registerContainer(vmName);
+
     console.log(`==> Creating container ${vmName}...`);
     await $`docker run -d ${[
       "--name", vmName,
@@ -95,6 +99,9 @@ export const createCommand = defineCommand({
       "-v", `${vmName}-docker:/var/lib/docker`,
       "-e", `AVM_ID=${shortIdOf(vmName)}`,
       "-e", `AVM_SSH_PORT=${sshPort}`,
+      "-e", `AVM_HOST_PORT=${config.daemon.port}`,
+      "-e", `AVM_HOST_TOKEN=${token}`,
+      "-e", `AVM_CONTAINER_NAME=${vmName}`,
       ...tzArgs,
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;

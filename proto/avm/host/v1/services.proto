@@ -1,0 +1,43 @@
+syntax = "proto3";
+package avm.host.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service ServicesService {
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  rpc GetService(GetServiceRequest) returns (Service);
+  rpc StartService(StartServiceRequest) returns (Service);
+  rpc StopService(StopServiceRequest) returns (Service);
+}
+
+message ListServicesRequest {}
+message ListServicesResponse {
+  repeated Service services = 1;
+}
+message GetServiceRequest { string name = 1; }
+message StartServiceRequest { string name = 1; }
+message StopServiceRequest { string name = 1; }
+
+message Service {
+  string name = 1;
+  Kind kind = 2;
+  State state = 3;
+  int32 pid = 4;
+  string last_error = 5;
+  google.protobuf.Timestamp last_check_at = 6;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  PROCESS = 1;
+  DOCKER = 2;
+}
+
+enum State {
+  STATE_UNSPECIFIED = 0;
+  UP = 1;
+  DOWN = 2;
+  STARTING = 3;
+  STOPPING = 4;
+  UNKNOWN = 5;
+}

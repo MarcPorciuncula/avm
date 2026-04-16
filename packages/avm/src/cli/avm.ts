@@ -10,6 +10,8 @@ import { execCommand } from "./commands/exec.ts";
 import { sshCommand } from "./commands/ssh.ts";
 import { sshConfigCommand } from "./commands/ssh-config.ts";
 import { provisionCommand } from "./commands/provision.ts";
+import { daemonCommand } from "./commands/daemon.ts";
+import { serviceCommand } from "./commands/service.ts";
 
 const main = defineCommand({
   meta: {
@@ -30,6 +32,8 @@ const main = defineCommand({
     clean: cleanCommand,
     destroy: cleanCommand,
     provision: provisionCommand,
+    daemon: daemonCommand,
+    service: serviceCommand,
   },
 });
 

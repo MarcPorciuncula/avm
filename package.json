@@ -1,31 +1,28 @@
 {
-  "name": "avm",
-  "version": "1.0.0",
-  "description": "A harness for running sandboxed Claude Code agents in Docker containers with `--dangerously-skip-permissions`.",
+  "name": "avm-workspace",
+  "private": true,
+  "type": "module",
   "bin": {
     "avm": "./dist/avm.mjs"
   },
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "prepare": "tsdown"
+    "prepare": "tsdown",
+    "buf:generate": "buf dep update && buf generate"
   },
-  "license": "ISC",
-  "packageManager": "pnpm@10.28.0",
-  "type": "module",
   "dependencies": {
-    "@clack/prompts": "^1.2.0",
-    "@types/node": "^25.5.2",
-    "@types/react": "^19.2.14",
-    "citty": "^0.2.2",
-    "ink": "^7.0.0",
-    "react": "^19.2.5",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "yaml": "^2.8.3",
-    "zx": "^8.8.5"
+    "@avm/cli": "workspace:*"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@bufbuild/buf", "esbuild"]
   },
   "devDependencies": {
-    "tsdown": "^0.21.7"
+    "@bufbuild/buf": "^1.68.1",
+    "@bufbuild/protoc-gen-es": "^2.11.0",
+    "tsdown": "^0.21.7",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
   }
 }

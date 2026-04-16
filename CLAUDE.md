@@ -3,6 +3,39 @@
 A CLI for managing Docker containers that sandbox Claude Code agents. Read
 `README.md` first for the big picture.
 
+## Terminology
+
+These terms define the layers and actors in the system. Use them
+consistently in code, docs, specs, and conversation.
+
+- **avm** — the system as a whole: the CLI, the daemon, the container
+  images, and the workflow they enable.
+- **host** — the user's machine that runs the `avm` CLI and manages
+  containers. macOS with OrbStack.
+- **user** — the human operator. The same person whether they're
+  typing in a host terminal or directing an in-container agent. There
+  is only one user.
+- **host agent** — an agent running on the host machine (e.g. the
+  user's Claude Code session). Its job is helping the user configure
+  and operate their avm setup. It does NOT work on the user's
+  codebases directly — that's what avm containers are for.
+- **avm agent / in-container agent** — an agent running inside an avm
+  container, typically with `--dangerously-skip-permissions`. This is
+  the agent that does actual codebase work.
+- **avm CLI** — the host-side CLI (`avm create`, `avm start`, etc.).
+  A control interface for the user and/or the host agent.
+- **avm daemon** — a long-running process on the host that acts as
+  the control plane. The avm CLI and avm-bridge both talk to it.
+- **avm-bridge** — an in-container CLI for the avm agent to
+  coordinate with the host control plane (daemon). It is NOT for the
+  host to run. Think of it as "phone home from inside the sandbox."
+
+When writing specs, docs, or code: be precise about which layer an
+action happens on and which actor initiates it. "The agent opens a
+file" is ambiguous — specify whether the host agent or the avm agent
+is acting, and whether the action happens on the host or inside the
+container.
+
 ## Package Manager
 
 This project uses **pnpm** (via corepack). Use `pnpm install`, `pnpm exec`,
@@ -25,10 +58,11 @@ argument concatenation breaks anything non-trivial.
   It does not maintain its own state, database, or long-running service.
   `docker ps --filter label=avm=true` is the source of truth for what
   containers exist. Anything richer than that is explicitly out of scope.
-- **Containers are reusable workspaces, not per-PR containers.** The user
-  creates them manually, keeps them around for a thread of work, and
-  cleans them up manually. Don't add auto-cleanup, TTLs, or "one
-  container per branch" features.
+- **Containers are flexible workspaces.** Users may keep them around
+  semi-persistently for a thread of work, or spin them up ephemerally
+  for a single task and clean them up immediately. Don't impose a
+  specific container lifetime model. Don't add auto-cleanup, TTLs, or
+  "one container per branch" features — the user decides the lifecycle.
 - **Defer decisions.** `avm start` doesn't require a repo or a branch.
   Those choices happen inside the container, via Claude, once the user
   is there.
@@ -62,18 +96,20 @@ argument concatenation breaks anything non-trivial.
 ## File Structure
 
 ```
-bin/avm.mjs                     # global entrypoint wrapper (for pnpm link)
-cli/avm.ts                      # citty entrypoint, registers subcommands
-cli/commands/*.ts               # one file per subcommand
-lib/config.ts                   # paths + constants (AVM_HOME + derived)
-lib/config-file.ts              # parse ~/.avm/config.yaml, generate avm-link
-lib/session.ts                  # shared session mount + post-creation orchestration
-lib/vm.ts                       # Docker exec helpers, container wrappers, ID utilities
-lib/image.ts                    # Docker image builder; builds core + user images
+pnpm-workspace.yaml             # workspace config
+packages/avm/src/cli/avm.ts     # host CLI entrypoint
+packages/avm/src/cli/commands/   # host CLI subcommands
+packages/avm/src/lib/           # host CLI shared logic
+packages/avm-daemon/src/        # daemon server
+packages/avm-bridge/src/        # in-container CLI
+packages/shared/src/            # proto types + Connect client factories
+proto/avm/bridge/v1/            # bridge API protos
+proto/avm/host/v1/              # host API protos
 dockerfiles/core.Dockerfile     # core Docker image definition (avm-core:latest)
 templates/vm-claude.md          # seed for ~/.avm/system/claude/CLAUDE.md
 templates/vm-helpers.sh         # installed at /opt/avm/helpers.sh in every image
 examples/Dockerfile             # reference ~/.avm/Dockerfile
+examples/config.yaml            # reference ~/.avm/config.yaml
 skills/avm/SKILL.md             # host-side Claude Code skill (symlinked in by users)
 docs/superpowers/               # design specs and implementation plans
 ```

@@ -1,0 +1,17 @@
+{
+  "name": "@avm/cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@avm/shared": "workspace:*",
+    "@clack/prompts": "^1.2.0",
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "citty": "^0.2.2",
+    "ink": "^7.0.0",
+    "react": "^19.2.5",
+    "yaml": "^2.8.3",
+    "zx": "^8.8.5"
+  }
+}

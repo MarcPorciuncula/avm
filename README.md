@@ -193,6 +193,13 @@ avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
 avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
 avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images
+avm daemon start          # Start the host daemon (background)
+avm daemon stop           # Stop the host daemon
+avm daemon status         # Check if the daemon is running
+avm service list          # List declared services and their status
+avm service start <name>  # Start a host service
+avm service stop <name>   # Stop a host service
+avm service status <name> # Check a service's status
 ```
 
 IDs are the 5-char suffix after `avm-`. You can pass a prefix — if it
@@ -223,6 +230,11 @@ which ship as part of the CLI.
 ├── build-context/        # Docker build context for ~/.avm/Dockerfile (COPY sources go here)
 ├── ssh_config            # managed by `avm ssh-config`; included from ~/.ssh/config when installed
 ├── state.json            # avm CLI preferences (e.g. remembered install-prompt decision)
+├── daemon/               # managed by avm daemon
+│   ├── host.secret       # host CLI auth (never mounted into containers)
+│   ├── state.json        # daemon-internal state
+│   ├── daemon.pid        # daemon PID
+│   └── daemon.log        # daemon logs
 ├── system/               # fixed layout; mounted into every session container
 │   ├── credentials/
 │   │   ├── ssh/          # → ~/.ssh in container (bind mount)
@@ -300,12 +312,57 @@ inside every container. On first session creation it's seeded from
 `templates/vm-claude.md`. Edit it freely afterwards — the seed is never
 re-copied over an existing file.
 
+## Host Services
+
+Agents running inside containers can start and stop services on the host
+machine via `avm-bridge`. This lets sandboxed agents control things like a
+Chrome browser for testing, a local database, or any other host-side
+process — without giving them direct host access.
+
+### How it works
+
+1. **Declare services** in `~/.avm/config.yaml`:
+
+```yaml
+services:
+  chrome:
+    kind: process
+    command:
+      - /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - --remote-debugging-port=9222
+      - --user-data-dir=/tmp/chrome-devtools-profile
+    check:
+      tcp: 127.0.0.1:9222
+```
+
+2. **Start the daemon** on the host:
+
+```bash
+avm daemon start
+```
+
+3. **Use from inside a container** (the in-container agent runs these):
+
+```bash
+avm-bridge service start chrome    # start Chrome on the host
+avm-bridge service status chrome   # check if it's running
+avm-bridge service stop chrome     # stop it
+```
+
+Services can be `kind: process` (a host process managed directly) or
+`kind: docker` (a Docker container started/stopped by the daemon). The
+`check` block defines how the daemon verifies the service is ready —
+currently `tcp` health checks are supported.
+
+See `examples/config.yaml` for a full worked example.
+
 ## Architecture Notes
 
 - **No state service.** `docker ps --filter label=avm=true` is the
   source of truth. The CLI is a thin wrapper over `docker`.
-- **Containers are reusable workspaces, not per-PR containers.** Name
-  them whatever fits the way you work. Cleanup is manual.
+- **Containers are flexible workspaces.** Use them semi-persistently
+  for a thread of work, or ephemerally for a single task. Name them
+  whatever fits the way you work. Cleanup is manual.
 - **No automated tests.** This is a CLI glue layer. Verification is
   manual: run the commands, check that things work.
 

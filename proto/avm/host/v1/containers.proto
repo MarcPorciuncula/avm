@@ -1,0 +1,12 @@
+syntax = "proto3";
+package avm.host.v1;
+
+service ContainerService {
+  rpc RegisterContainer(RegisterContainerRequest) returns (RegisterContainerResponse);
+  rpc UnregisterContainer(UnregisterContainerRequest) returns (UnregisterContainerResponse);
+}
+
+message RegisterContainerRequest { string name = 1; }
+message RegisterContainerResponse { string token = 1; }
+message UnregisterContainerRequest { string name = 1; }
+message UnregisterContainerResponse {}
