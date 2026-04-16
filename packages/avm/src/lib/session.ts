@@ -131,7 +131,8 @@ export function ensureHostScaffolding(): void {
   }
 
   // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
-  generateRootClaudeMd();
+  const config = loadAvmConfig();
+  generateRootClaudeMd(config);
 }
 
 /**
@@ -185,10 +186,10 @@ export async function applyPostCreationSetup(
  * into containers — updates propagate to running containers immediately.
  *
  * Content: static avm agent guidance pointing the agent at the
- * relevant skills (avm-repos, avm-docker, avm-services, avm-editor).
- * Detailed instructions live in the skill files, not here.
+ * relevant skills, plus a dynamic listing of declared host services
+ * so the agent is ambiently aware of what's available.
  */
-export function generateRootClaudeMd(): void {
+export function generateRootClaudeMd(config: AvmConfig): void {
   const lines = [
     "# avm Agent Environment",
     "",
@@ -208,6 +209,19 @@ export function generateRootClaudeMd(): void {
     "The container filesystem persists across stop/start but is destroyed on",
     "cleanup. Only remote commits are durable.",
   ];
+
+  const serviceEntries = Object.entries(config.services);
+  if (serviceEntries.length > 0) {
+    lines.push("");
+    lines.push("## Host services");
+    lines.push("");
+    lines.push("The following services are available on the host via `avm-bridge`.");
+    lines.push("Consult the avm-services skill for usage.");
+    lines.push("");
+    for (const [name, svc] of serviceEntries) {
+      lines.push(`- **${name}** — \`${svc.check.tcp}\``);
+    }
+  }
 
   lines.push("");
 
