@@ -58,10 +58,11 @@ argument concatenation breaks anything non-trivial.
   It does not maintain its own state, database, or long-running service.
   `docker ps --filter label=avm=true` is the source of truth for what
   containers exist. Anything richer than that is explicitly out of scope.
-- **Containers are reusable workspaces, not per-PR containers.** The user
-  creates them manually, keeps them around for a thread of work, and
-  cleans them up manually. Don't add auto-cleanup, TTLs, or "one
-  container per branch" features.
+- **Containers are flexible workspaces.** Users may keep them around
+  semi-persistently for a thread of work, or spin them up ephemerally
+  for a single task and clean them up immediately. Don't impose a
+  specific container lifetime model. Don't add auto-cleanup, TTLs, or
+  "one container per branch" features — the user decides the lifecycle.
 - **Defer decisions.** `avm start` doesn't require a repo or a branch.
   Those choices happen inside the container, via Claude, once the user
   is there.

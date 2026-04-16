@@ -304,8 +304,9 @@ re-copied over an existing file.
 
 - **No state service.** `docker ps --filter label=avm=true` is the
   source of truth. The CLI is a thin wrapper over `docker`.
-- **Containers are reusable workspaces, not per-PR containers.** Name
-  them whatever fits the way you work. Cleanup is manual.
+- **Containers are flexible workspaces.** Use them semi-persistently
+  for a thread of work, or ephemerally for a single task. Name them
+  whatever fits the way you work. Cleanup is manual.
 - **No automated tests.** This is a CLI glue layer. Verification is
   manual: run the commands, check that things work.
 

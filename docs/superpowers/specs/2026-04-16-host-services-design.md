@@ -140,7 +140,7 @@ Three new components:
 - **`avm-bridge`** — a separate CLI that lives inside every avm
   container. Built from `packages/avm-bridge`, bundled as a single JS
   file, bind-mounted from the repo's `dist/` directory, invoked via
-  the container's Node/Bun.
+  the container's Node.
 - **`avm service`** — a new subcommand on the host CLI that talks to
   the daemon over Connect, giving the user and host agent parity with
   what `avm-bridge service` provides from inside containers.
@@ -227,14 +227,12 @@ Future additions to this package: service management parity RPCs
 (so `avm service ls` on the host calls the same daemon), container
 introspection, etc.
 
-#### Shared types
+#### No shared proto package
 
-Messages that appear in both APIs (e.g. `Service`, `Kind`, `State`)
-live in a shared `avm.common.v1` package that both import, avoiding
-duplication. Alternatively, each package owns its own copies if the
-shapes diverge — to be decided during implementation based on whether
-the host API needs different fields (e.g. richer metadata for
-monitoring).
+Each API owns its own types. The bridge API will likely have a much
+more limited view than the host API, so sharing types would couple
+their evolution. For shared primitives (timestamps, durations, etc.),
+import from well-known proto dependencies (`google.protobuf`).
 
 ### Authentication
 
@@ -304,12 +302,11 @@ caller is a specific registered container.
 
 #### Storage
 
-The daemon owns its state store. The format is an internal
-implementation detail — JSON with atomic writes, SQLite KV, or
-anything else the daemon chooses. Neither CLI reads or writes the
-state directly (except the host CLI reading `host.secret`). The
-state lives under `~/.avm/daemon/` with restrictive permissions
-(`0700` on directory, `0600` on files).
+The daemon persists state (including container tokens) to
+`~/.avm/daemon/state.json` via atomic writes. Neither CLI reads or
+writes the state file (except the host CLI reading `host.secret`).
+The directory uses restrictive permissions (`0700` on directory,
+`0600` on files).
 
 #### Threat model and what's out of scope
 
@@ -402,12 +399,15 @@ require a restart.
 current state. They never mutate anything.
 
 **State persistence**. The daemon owns all persistent state: service
-PIDs, container tokens, and any future metadata. The storage format
-is an internal implementation detail of the `avm-daemon` package
-(JSON with atomic writes for now; can migrate to SQLite KV later
-without touching any CLI code). The health check is always the source
-of truth for service state — persisted PIDs are a best-effort hint
-for `StopService` after daemon restart.
+PIDs, container tokens, and any future metadata. Storage is a JSON
+file at `~/.avm/daemon/state.json`, written atomically (write temp →
+rename). The daemon is the sole reader and writer, but must serialize
+concurrent RPC handlers internally (e.g. a mutex around state reads
+and writes) to prevent request-level races. The format can be changed
+in the future without affecting either CLI since they never touch the
+file. The health check is always the source of truth for service
+state — persisted PIDs are a best-effort hint for `StopService` after
+daemon restart.
 
 Logs go to `~/.avm/daemon/daemon.log`. The daemon writes its own PID
 to `~/.avm/daemon/daemon.pid` on startup so `avm daemon stop` can
@@ -488,8 +488,7 @@ revoke the token as part of its existing teardown.
 
 Built from `packages/avm-bridge`, bundled to `dist/avm-bridge.mjs`.
 Bind-mounted into every container at `/usr/local/bin/avm-bridge`.
-Runs under the container's Node or Bun (already present for
-development).
+Runs under the container's Node (already present for development).
 
 Command surface:
 
@@ -601,11 +600,6 @@ even separate PRs) to keep the diff reviewable.
 
 ## Open Questions / Implementation Notes
 
-- **Bun port.** If the project ports to Bun first (an independent
-  decision the user is considering), the daemon and shim both move to
-  Bun and the shim can later ship as a compiled single binary via
-  `bun build --compile --target=bun-linux-<arch>`. The design here is
-  agnostic — nothing changes in the interface, only the build step.
 - **`docker` kind and pre-existence.** Starting a declared docker
   service when the named container doesn't exist should fail with a
   clear error pointing the user at "create the container first." No
@@ -617,10 +611,6 @@ even separate PRs) to keep the diff reviewable.
   itself (Connect over HTTP) is platform-neutral; the install step
   errors cleanly on non-macOS. avm today is macOS-first per the README
   requirements, so this is acceptable.
-- **Prescriptive container-lifetime language in the docs.** Unrelated
-  to this design but flagged during brainstorming: several docs imply
-  containers are "reusable workspaces" only. In reality they're used
-  both semi-persistently and ephemerally. Revisit as a follow-up.
 
 ## Success Criteria
 
