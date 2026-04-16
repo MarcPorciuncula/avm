@@ -72,7 +72,7 @@ mkdir -p ~/.avm/system/credentials/git
 mkdir -p ~/.avm/system/claude
 
 cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub ~/.ssh/config ~/.avm/system/credentials/ssh/
-cp ~/.gitconfig ~/.avm/system/credentials/git/.gitconfig
+cp ~/.gitconfig ~/.avm/system/credentials/git/config
 ```
 
 These are mounted into every container. Claude Code state
@@ -239,7 +239,7 @@ which ship as part of the CLI.
 │   ├── credentials/
 │   │   ├── ssh/          # → ~/.ssh in container (bind mount)
 │   │   └── git/
-│   │       └── .gitconfig # → ~/.gitconfig in container (copied)
+│   │       └── config     # → ~/.config/git/config in container (bind mount)
 │   ├── claude/           # → ~/.claude in container (bind mount)
 │   └── claude.json       # → ~/.claude.json in container (file bind mount)
 ├── mirrors/              # → ~/mirrors in container (bind mount)
@@ -259,10 +259,9 @@ difference is what happens first:
 
 Both then run `applyPostCreationSetup`:
 
-1. Copy `.gitconfig` to `/home/agent/.gitconfig`.
-2. Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md`
+1. Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md`
    if missing (never overwrites).
-3. Generate `/usr/local/bin/avm-link` from `config.yaml`.
+2. Generate `/usr/local/bin/avm-link` from `config.yaml`.
 
 Mounts are established at container creation time and persist across
 `docker stop` / `docker start`. The container only sees explicitly

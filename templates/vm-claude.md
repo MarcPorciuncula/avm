@@ -29,7 +29,7 @@ that interact with external services, etc.
 The container filesystem persists across stop/start but is destroyed on
 cleanup. Only remote commits are durable. Your SSH keys, git config, and
 `~/.claude/` state are persistent across cleanup and shared with other
-`avm` containers — so edits to `~/.gitconfig` or `~/.claude/CLAUDE.md`
+`avm` containers — so edits to `~/.config/git/config` or `~/.claude/CLAUDE.md`
 apply everywhere.
 
 Do not edit `~/CLAUDE.md` — it is system-provided and changes to it will

@@ -87,8 +87,8 @@ export const startCommand = defineCommand({
     console.log(`==> Starting ${vmName}...`);
     await $`docker start ${vmName}`;
 
-    // Regenerate /usr/local/bin/avm-link and copy .gitconfig so
-    // config.yaml changes take effect on resume.
+    // Regenerate /usr/local/bin/avm-link so config.yaml changes
+    // take effect on resume.
     await applyPostCreationSetup(vmName, config);
 
     if (vm.sshPort) {

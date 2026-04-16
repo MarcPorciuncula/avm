@@ -153,7 +153,7 @@ Once attached, the user (or Claude inside the container) sees:
 - `~/work/` — project repos (you clone them here; persists across stop/start)
 - `~/mirrors/` — bare git mirrors for fast clones (mounted from host)
 - `~/.avm-files/` — overlay files for `avm-link` to symlink from (read-only in practice)
-- `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.gitconfig` — credentials and settings
+- `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.config/git/config` — credentials and settings
 - `clauded` — alias for `claude --dangerously-skip-permissions`
 - `avm-link` — applies the per-repo symlinks from `~/.avm/config.yaml`
 - `avm-bridge` — CLI for coordinating with the host daemon (start/stop
@@ -177,7 +177,7 @@ Minimum for a working session:
    agent containers, or copy an existing one from `~/.ssh/`. The
    directory is mounted as `~/.ssh` inside every container, so treat it
    as the agent's GitHub identity.
-2. **Git identity** at `~/.avm/system/credentials/git/.gitconfig`.
+2. **Git identity** at `~/.avm/system/credentials/git/config`.
    Either copy `~/.gitconfig` or write a minimal one with `user.name`
    and `user.email`.
 3. **Dockerfile** at `~/.avm/Dockerfile`. Start from
