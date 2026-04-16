@@ -200,36 +200,34 @@ on the next call.
 
 ### Authentication
 
-The daemon binds `127.0.0.1` only, but "anything on loopback can call
-it" is too loose: untrusted code inside a container could impersonate
-another container when future RPCs (editor invocation, notifications)
-begin to authorize based on container identity. We add a lightweight
-per-container bearer token now, before those RPCs arrive.
+The daemon's API has two distinct auth domains with separate callers,
+separate trust levels, and separate token mechanisms.
 
-**Token lifecycle.**
+#### Auth domain 1: Host CLI → daemon (admin)
 
-- `avm create` ensures the daemon is running, then calls
-  `RegisterContainer(name)` → the daemon generates a 32-byte random
-  token (base64url), persists it in its own state store, and returns
-  it. The host CLI passes the token to `docker run -e AVM_HOST_TOKEN=<value>`.
-- `avm stop` / `avm start` don't touch the token — env vars persist
-  with the container across `docker stop`/`docker start`, so the
-  token survives.
-- `avm clean <id>` calls `UnregisterContainer(name)` on the daemon,
-  which removes the token from its state store.
+The host CLI (`avm`) calls admin RPCs: `RegisterContainer`,
+`UnregisterContainer`, and any future management operations. These
+must be restricted to the host CLI — a container must never be able
+to register or unregister other containers.
 
-**Storage.**
+**Host secret.**
 
-The daemon owns its state store. The format is an internal
-implementation detail — JSON with atomic writes, SQLite KV, or
-anything else the daemon chooses. Neither CLI reads or writes the
-state directly. The state lives under `~/.avm/daemon/` with
-restrictive permissions (`0700` on directory, `0600` on files).
+- The daemon generates a 32-byte random secret (base64url) on first
+  start and persists it at `~/.avm/daemon/host.secret` (`0600`).
+- This file lives under `~/.avm/daemon/`, which is **never mounted**
+  into avm containers. Containers cannot read it.
+- The host CLI reads the secret from disk and sends it as
+  `Authorization: Bearer <host-secret>` on every admin RPC.
+- The daemon validates the bearer token against the on-disk secret.
+  Mismatch → `Unauthenticated`.
+- If the secret file doesn't exist (daemon hasn't started yet, or was
+  reset), the host CLI errors with a clear message pointing the user
+  at `avm daemon start`.
 
-The daemon's RPC surface for container registration:
+**Admin RPC surface** (`proto/avm/v1/admin.proto`):
 
 ```proto
-service ContainerService {
+service AdminService {
   rpc RegisterContainer(RegisterContainerRequest)     returns (RegisterContainerResponse);
   rpc UnregisterContainer(UnregisterContainerRequest) returns (UnregisterContainerResponse);
 }
@@ -240,32 +238,71 @@ message UnregisterContainerRequest { string name = 1; }
 message UnregisterContainerResponse {}
 ```
 
-These RPCs are called by the host CLI only (not by avm-bridge).
-They do not require bearer-token auth — the host CLI is trusted
-(it's running on the host, same user account as the daemon).
+#### Auth domain 2: avm-bridge → daemon (container)
 
-**Shim and daemon handshake.**
+The in-container CLI (`avm-bridge`) calls container RPCs:
+`ListServices`, `GetService`, `StartService`, `StopService`,
+`OpenFile` (editor), and future per-container operations. These
+require proof that the caller is a specific registered container.
 
-- The shim sets `Authorization: Bearer $AVM_HOST_TOKEN` on every
+**Container token lifecycle.**
+
+- `avm create` ensures the daemon is running, then calls
+  `RegisterContainer(name)` (authenticated with the host secret) →
+  the daemon generates a 32-byte random token (base64url), persists
+  it in its state store, and returns it. The host CLI passes the
+  token to `docker run -e AVM_HOST_TOKEN=<value>`.
+- `avm stop` / `avm start` don't touch the token — env vars persist
+  with the container across `docker stop`/`docker start`, so the
+  token survives.
+- `avm clean <id>` calls `UnregisterContainer(name)` (authenticated
+  with the host secret), which revokes the token from the daemon's
+  state store.
+
+**Container handshake.**
+
+- avm-bridge sets `Authorization: Bearer $AVM_HOST_TOKEN` on every
   Connect request. If the env var is missing it exits with a clear
   error — this can only happen if the token was never provisioned
   (broken `avm create`) or the user manually unset it.
 - A Connect interceptor in the daemon looks up the token; on match
   it attaches `{ container_name }` to the request context, on miss it
   returns `Unauthenticated`.
-- `ServicesService` requires auth but is identity-agnostic — any
-  authenticated container may list/start/stop any service. The
+- `ServicesService` requires container auth but is identity-agnostic —
+  any authenticated container may list/start/stop any service. The
   identity is recorded in logs only.
-- Sibling RPCs (editor, notifications) will read `container_name`
+- `EditorService` and future per-container RPCs read `container_name`
   from the request context to authorize per-container behavior.
 
-**Threat model and what's out of scope.**
+#### Summary
 
-The threat being mitigated is a compromised process inside container
-A impersonating container B to the daemon. This matters once RPCs
-begin to behave differently per-caller. Not mitigated (and not in
-scope): a compromised host user account, a malicious `avm` CLI, or
-an attacker who has already escaped the container.
+| Caller     | Token source                      | Mounted into containers? | Calls                    |
+|------------|-----------------------------------|--------------------------|--------------------------|
+| Host CLI   | `~/.avm/daemon/host.secret` file  | No (never)               | AdminService             |
+| avm-bridge | `$AVM_HOST_TOKEN` env var         | Yes (env-only)           | ServicesService, EditorService |
+
+#### Storage
+
+The daemon owns its state store. The format is an internal
+implementation detail — JSON with atomic writes, SQLite KV, or
+anything else the daemon chooses. Neither CLI reads or writes the
+state directly (except the host CLI reading `host.secret`). The
+state lives under `~/.avm/daemon/` with restrictive permissions
+(`0700` on directory, `0600` on files).
+
+#### Threat model and what's out of scope
+
+Two threats mitigated:
+
+1. A compromised process inside container A impersonating container B
+   to the daemon. Prevented by per-container bearer tokens.
+2. A compromised container calling admin RPCs (registering/
+   unregistering other containers). Prevented by the host secret
+   never being mounted into containers.
+
+Not mitigated (and not in scope): a compromised host user account,
+a malicious `avm` CLI, or an attacker who has already escaped the
+container.
 
 ### Service configuration
 
@@ -359,7 +396,8 @@ find it.
 
 ```
 ~/.avm/daemon/
-├── state.json       # daemon-internal: tokens, service PIDs, metadata
+├── host.secret      # host CLI auth token (generated on first daemon start, never mounted into containers)
+├── state.json       # daemon-internal: container tokens, service PIDs, metadata
 ├── daemon.pid       # daemon process ID (for avm daemon stop)
 └── daemon.log
 ```
@@ -491,14 +529,14 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 - `packages/shared/package.json` — proto types + Connect client factory
 
 ### Proto + codegen (new)
-- `proto/avm/v1/services.proto` — ServicesService RPCs
-- `proto/avm/v1/containers.proto` — ContainerService RPCs (register/unregister)
+- `proto/avm/v1/services.proto` — ServicesService RPCs (container auth)
+- `proto/avm/v1/admin.proto` — AdminService RPCs (host auth)
 - `buf.yaml`, `buf.gen.yaml` — Buf config; generates into `packages/shared/src/gen/`
 
 ### `packages/avm-daemon` — new files
 - `src/server.ts` — Connect server setup + HTTP listener
 - `src/services.ts` — ServicesService handlers
-- `src/containers.ts` — ContainerService handlers (register/unregister)
+- `src/admin.ts` — AdminService handlers (register/unregister containers)
 - `src/registry.ts` — in-memory service registry, health checks, process bookkeeping
 - `src/auth.ts` — token management, Connect auth interceptor
 - `src/state.ts` — state persistence (daemon-internal; format is an implementation detail)
