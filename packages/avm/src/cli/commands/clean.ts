@@ -3,6 +3,7 @@ import { $ } from "zx";
 import { confirm, isCancel, cancel } from "@clack/prompts";
 import { listAvmVms, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
 import { syncSshConfig } from "../../lib/ssh-config.ts";
+import { unregisterContainer } from "../../lib/session.ts";
 
 export const cleanCommand = defineCommand({
   meta: {
@@ -101,6 +102,7 @@ export const cleanCommand = defineCommand({
         }
       }
 
+      await unregisterContainer(target.name);
       console.log(`==> Stopping ${target.name}...`);
       await $`docker stop ${target.name}`.nothrow();
       console.log(`==> Deleting ${target.name}...`);
