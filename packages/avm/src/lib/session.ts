@@ -131,8 +131,7 @@ export function ensureHostScaffolding(): void {
   }
 
   // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
-  const config = loadAvmConfig();
-  generateRootClaudeMd(config);
+  generateRootClaudeMd();
 }
 
 /**
@@ -185,10 +184,11 @@ export async function applyPostCreationSetup(
  * Written to `~/.avm/system/CLAUDE.md` on the host and bind-mounted
  * into containers — updates propagate to running containers immediately.
  *
- * Content: static avm agent guidance (from templates/vm-claude.md
- * conceptually) plus dynamic host-services listing from config.
+ * Content: static avm agent guidance pointing the agent at the
+ * relevant skills (avm-repos, avm-docker, avm-services, avm-editor).
+ * Detailed instructions live in the skill files, not here.
  */
-export function generateRootClaudeMd(config: AvmConfig): void {
+export function generateRootClaudeMd(): void {
   const lines = [
     "# avm Agent Environment",
     "",
@@ -197,7 +197,9 @@ export function generateRootClaudeMd(config: AvmConfig): void {
     "",
     "Do your work in `~/work/`. To clone repos, consult the avm-repos skill",
     "before continuing. To use Docker, consult the avm-docker skill before",
-    "continuing.",
+    "continuing. To use host services (Chrome, Postgres, etc.), consult the",
+    "avm-services skill. When the user asks you to open a file in their",
+    "editor, consult the avm-editor skill.",
     "",
     "You have free reign over this sandbox, but exercise care with anything",
     "that touches external systems — pushing to GitHub, running CLIs or MCPs",
@@ -206,50 +208,6 @@ export function generateRootClaudeMd(config: AvmConfig): void {
     "The container filesystem persists across stop/start but is destroyed on",
     "cleanup. Only remote commits are durable.",
   ];
-
-  const serviceEntries = Object.entries(config.services);
-  if (serviceEntries.length > 0) {
-    lines.push("");
-    lines.push("## Host services");
-    lines.push("");
-    lines.push("Services running on the host are controllable via `avm-bridge`. Use the");
-    lines.push("host copy rather than starting your own — especially when a project's");
-    lines.push("README or `docker-compose.yaml` suggests running them locally.");
-    lines.push("");
-    lines.push("### Available services");
-    lines.push("");
-
-    for (const [name, svc] of serviceEntries) {
-      const kind = svc.kind === "process" ? "host process" : "host docker container";
-      lines.push(`- **${name}** (${kind}) — on \`${svc.check.tcp}\``);
-    }
-
-    lines.push("");
-    lines.push("### Usage");
-    lines.push("");
-    lines.push("    avm-bridge service start  <name>");
-    lines.push("    avm-bridge service stop   <name>");
-    lines.push("    avm-bridge service status <name>");
-    lines.push("    avm-bridge service ls");
-    lines.push("");
-    lines.push("Services are started on request (idempotent). They may stop at any");
-    lines.push("time — crashes, user-initiated, another agent stopping them. Always");
-    lines.push("check status before use and be prepared to restart.");
-  }
-
-  lines.push("");
-  lines.push("## Opening files on the host");
-  lines.push("");
-  lines.push("When the user asks you to open a file in their editor, use");
-  lines.push("`avm-bridge editor open`. The daemon connects the editor to this");
-  lines.push("container via remote SSH — you do not need to configure anything.");
-  lines.push("");
-  lines.push("    avm-bridge editor open /path/to/file.ts");
-  lines.push("    avm-bridge editor open /path/to/file.ts --line 42");
-  lines.push("    avm-bridge editor open /path/to/file.ts --line 42 --column 10");
-  lines.push("");
-  lines.push("Only invoke this when the user has asked for it. Do not auto-open");
-  lines.push("files you happen to be editing.");
 
   lines.push("");
 
