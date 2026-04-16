@@ -4,6 +4,10 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { ConnectError, Code } from "@connectrpc/connect";
 
 import {
+  EditorService as BridgeEditorService,
+  OpenFileResponseSchema,
+} from "@avm/shared/gen/avm/bridge/v1/editor_pb";
+import {
   ServicesService as BridgeServicesService,
   ServiceSchema as BridgeServiceSchema,
   ListServicesResponseSchema as BridgeListServicesResponseSchema,
@@ -23,6 +27,7 @@ import {
   UnregisterContainerResponseSchema,
 } from "@avm/shared/gen/avm/host/v1/containers_pb";
 
+import { openFile } from "./editor.js";
 import type { ServiceRegistry, ServiceConfig, ServiceStatus } from "./registry.js";
 import type { StateStore } from "./state.js";
 
@@ -126,6 +131,27 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+        });
+      },
+    });
+
+    // Bridge editor API (called by containers)
+    router.service(BridgeEditorService, {
+      async openFile(req, context) {
+        const containerName = context.requestHeader.get("x-avm-container-name");
+        if (!containerName) {
+          throw new ConnectError("Container identity not resolved", Code.Internal);
+        }
+        const result = openFile(containerName, {
+          path: req.path,
+          line: req.line,
+          column: req.column,
+          editor: req.editor,
+        });
+        return create(OpenFileResponseSchema, {
+          editor: result.editor,
+          sshHost: result.sshHost,
+          command: result.command,
         });
       },
     });

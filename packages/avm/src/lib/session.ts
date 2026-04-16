@@ -177,8 +177,9 @@ export async function applyPostCreationSetup(
  * Written to `~/.avm/system/CLAUDE.md` on the host and bind-mounted
  * into containers — updates propagate to running containers immediately.
  *
- * Content: static avm agent guidance (from templates/vm-claude.md
- * conceptually) plus dynamic host-services listing from config.
+ * Content: static avm agent guidance pointing the agent at the
+ * relevant skills, plus a dynamic listing of declared host services
+ * so the agent is ambiently aware of what's available.
  */
 export function generateRootClaudeMd(config: AvmConfig): void {
   const lines = [
@@ -189,7 +190,9 @@ export function generateRootClaudeMd(config: AvmConfig): void {
     "",
     "Do your work in `~/work/`. To clone repos, consult the avm-repos skill",
     "before continuing. To use Docker, consult the avm-docker skill before",
-    "continuing.",
+    "continuing. To use host services, consult the avm-services skill.",
+    "When the user asks you to open a file in their editor, consult the",
+    "avm-editor skill.",
     "",
     "You have free reign over this sandbox, but exercise care with anything",
     "that touches external systems — pushing to GitHub, running CLIs or MCPs",
@@ -204,29 +207,12 @@ export function generateRootClaudeMd(config: AvmConfig): void {
     lines.push("");
     lines.push("## Host services");
     lines.push("");
-    lines.push("Services running on the host are controllable via `avm-bridge`. Use the");
-    lines.push("host copy rather than starting your own — especially when a project's");
-    lines.push("README or `docker-compose.yaml` suggests running them locally.");
+    lines.push("The following services are available on the host via `avm-bridge`.");
+    lines.push("Consult the avm-services skill for usage.");
     lines.push("");
-    lines.push("### Available services");
-    lines.push("");
-
     for (const [name, svc] of serviceEntries) {
-      const kind = svc.kind === "process" ? "host process" : "host docker container";
-      lines.push(`- **${name}** (${kind}) — on \`${svc.check.tcp}\``);
+      lines.push(`- **${name}** — \`${svc.check.tcp}\``);
     }
-
-    lines.push("");
-    lines.push("### Usage");
-    lines.push("");
-    lines.push("    avm-bridge service start  <name>");
-    lines.push("    avm-bridge service stop   <name>");
-    lines.push("    avm-bridge service status <name>");
-    lines.push("    avm-bridge service ls");
-    lines.push("");
-    lines.push("Services are started on request (idempotent). They may stop at any");
-    lines.push("time — crashes, user-initiated, another agent stopping them. Always");
-    lines.push("check status before use and be prepared to restart.");
   }
 
   lines.push("");

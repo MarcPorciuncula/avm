@@ -1,6 +1,6 @@
 ---
 name: avm
-description: Use when the user asks to spin up, attach to, list, or clean up avm sandbox containers, or configure avm (Dockerfile, volumes, caches, config.yaml, mirrors, credentials) — the CLI for managing Docker-based Claude Code sandboxes.
+description: Use when the user asks to spin up, attach to, list, or clean up avm sandbox containers, or configure avm (Dockerfile, volumes, caches, config.yaml, mirrors, credentials, services, daemon) — the CLI for managing Docker-based Claude Code sandboxes.
 ---
 
 # Using `avm`
@@ -46,6 +46,13 @@ avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
 avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
 avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images (core + user)
+avm daemon start          # Start the avm daemon (auto-started by avm create if needed)
+avm daemon stop           # Stop the avm daemon
+avm daemon status         # Show daemon URL, PID, and reachability
+avm service ls            # List declared host services and their state
+avm service start <name>  # Start a host service
+avm service stop <name>   # Stop a host service
+avm service status <name> # Show status of a host service
 ```
 
 Images are infrastructure — excluded from `avm list` and never touched
@@ -149,6 +156,9 @@ Once attached, the user (or Claude inside the container) sees:
 - `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.gitconfig` — credentials and settings
 - `clauded` — alias for `claude --dangerously-skip-permissions`
 - `avm-link` — applies the per-repo symlinks from `~/.avm/config.yaml`
+- `avm-bridge` — CLI for coordinating with the host daemon (start/stop
+  host services, open files in the user's editor). See the avm-services
+  and avm-editor skills inside the container for usage.
 - Docker (DinD) — run `start-dockerd` inside the container, then `docker build`, `docker run`, etc. work normally
 
 The container only sees explicitly mounted paths. There is no access to
@@ -193,6 +203,70 @@ Optional but recommended:
 Don't create `~/.avm/` directories the user won't populate. Empty
 scaffolding clutters their home; `avm create` creates the pieces it
 needs on demand (`ensureHostScaffolding` in `lib/session.ts`).
+
+## Host services and the daemon
+
+The avm daemon is a host-side control plane that manages service
+lifecycle (start/stop/health-check) for host processes and host Docker
+containers. Agents inside containers communicate with it via
+`avm-bridge` (installed automatically in every container).
+
+### Configuring services
+
+Services are declared in `~/.avm/config.yaml` under the `services:` key:
+
+```yaml
+daemon:
+  port: 6970          # default, optional
+
+services:
+  chrome:
+    kind: process
+    command:
+      - /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - --remote-debugging-port=9222
+      - --user-data-dir=/tmp/chrome-devtools-profile
+    check:
+      tcp: 127.0.0.1:9222
+
+  postgres:
+    kind: docker
+    container: local-postgres    # must already exist as a host docker container
+    check:
+      tcp: 127.0.0.1:5432
+```
+
+Two kinds:
+- **`process`** — the daemon spawns a host process directly. Requires
+  `command` (array of binary + args).
+- **`docker`** — the daemon runs `docker start/stop` on a pre-existing
+  host docker container. Requires `container` (container name).
+
+Both require a `check` with `tcp: host:port` for health checking.
+
+### Daemon lifecycle
+
+The daemon is auto-started by `avm create` if not already running.
+For manual control:
+
+```
+avm daemon start     # start if not running
+avm daemon stop      # stop
+avm daemon status    # check URL, PID, reachability
+```
+
+### Host-side service management
+
+From the host, the user can also manage services directly:
+
+```
+avm service ls               # list services + state
+avm service start chrome     # start a service
+avm service stop chrome      # stop a service
+```
+
+These use the same daemon as the in-container `avm-bridge service`
+commands.
 
 ## Configuring volumes (caches and persistent data)
 
@@ -260,8 +334,30 @@ If a command works during `docker build` but is missing at runtime:
 They are complementary: the Dockerfile provides the tools, volumes keep
 the caches warm. The volume must never shadow the tool install.
 
+## Your role as the host agent
+
+You are a host agent. Your job is helping the user configure and
+operate their avm setup — not doing codebase work. Codebase work
+happens inside containers, performed by avm agents.
+
+**You MUST NOT perform actual work inside containers directly.** Do not
+use `avm exec` to edit files, run builds, install packages, commit
+code, or do anything that constitutes codebase work. That defeats the
+purpose of sandboxing.
+
+`avm exec` is available for:
+- Ad hoc debugging when the user explicitly asks (e.g. "check what's
+  in that container's work directory")
+- Dispatching to an inner agent when the user explicitly asks (e.g.
+  starting a `claude` session inside a container)
+
+If the user asks you to do work that belongs inside a container,
+create or start a container and let the avm agent handle it.
+
 ## Things NOT to do
 
+- **Don't do codebase work inside containers.** See above. Delegate
+  to the avm agent.
 - **Don't create containers by calling `docker` directly.** Always go
   through `avm create` so mounts, credentials, and setup are applied
   correctly.
