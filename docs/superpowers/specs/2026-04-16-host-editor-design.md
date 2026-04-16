@@ -131,7 +131,7 @@ been run — it assumes the user has done so and the editor's remote-SSH
 extension is able to resolve `avm-<id>`. If it hasn't, the editor
 itself surfaces the error to the user, which is the right UX.
 
-## Shim (`avm-bridge`)
+## `avm-bridge` (in-container CLI)
 
 New subcommand tree:
 
@@ -194,18 +194,17 @@ or pass --editor."
 
 New:
 - `proto/avm/v1/editor.proto` — EditorService
-- `lib/daemon/editor.ts` — `OpenFile` handler
+- `packages/avm/src/daemon/editor.ts` — `OpenFile` handler
 
 Modified:
-- `buf.gen.yaml` — already generates whole package; nothing to change
-- `lib/daemon/server.ts` — register `EditorService`
-- `cli/avm-bridge.ts` — add `editor open` subcommand
-- `lib/session.ts` — extend the generated `host-services.md` template
+- `packages/avm/src/daemon/server.ts` — register `EditorService`
+- `packages/avm-bridge/src/cli/commands/editor.ts` — add `editor open` subcommand
+- `packages/avm/src/lib/session.ts` — extend the generated `host-services.md` template
   with the editor section
 - `README.md` — brief mention under the Host Services section
 
-No changes to `cli/commands/create.ts` — container env vars already set
-by the host-services spec are sufficient.
+No changes to `packages/avm/src/cli/commands/create.ts` — container
+env vars already set by the host-services spec are sufficient.
 
 ## Open Questions / Implementation Notes
 

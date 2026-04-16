@@ -65,14 +65,60 @@ containers reach `localhost` on the host directly. The gap is
 
 ## Architecture
 
+### Repo structure: pnpm workspaces
+
+The repo moves to a pnpm workspaces layout with three packages:
+
+```
+pnpm-workspace.yaml
+packages/
+  avm/                  # host CLI + daemon (the existing CLI, relocated)
+    package.json
+    src/
+      cli/              # citty entrypoint + subcommands (create, start, daemon, service, …)
+      lib/              # config, session, image, vm helpers
+      daemon/           # Connect server, service handlers, auth, launchd
+  avm-bridge/           # in-container CLI
+    package.json
+    src/
+      cli/              # citty entrypoint + subcommands (service, editor)
+  shared/               # proto types, Connect client, shared config types
+    package.json
+    src/
+      client.ts         # Connect client (used by both avm service and avm-bridge)
+      config.ts         # config types shared between host and bridge
+proto/                  # .proto source files (not a package; Buf generates into packages/shared)
+  avm/v1/
+    services.proto
+buf.yaml
+buf.gen.yaml
+```
+
+`packages/avm` depends on `packages/shared`.
+`packages/avm-bridge` depends on `packages/shared`.
+Neither depends on the other.
+
+Each package has its own esbuild entrypoint:
+- `packages/avm` → `dist/avm.mjs` (the host CLI, same as today)
+- `packages/avm-bridge` → `dist/avm-bridge.mjs` (bind-mounted into
+  containers)
+
+The existing top-level `bin/avm.mjs` entrypoint wrapper continues to
+point at `dist/avm.mjs`. `pnpm link --global` still installs `avm` on
+the host PATH.
+
+### Components
+
 Two new components:
 
 - **`avm daemon`** — a long-running host-side process that owns service
   lifecycle. Serves a Connect-over-HTTP API on `127.0.0.1:<port>`.
-  Written in TypeScript, shares the existing build pipeline.
-- **`avm-bridge`** — a thin Connect client CLI that lives inside every
-  avm container. Bundled as a single JS file, bind-mounted from the
-  repo's `dist/` directory, invoked via the container's Node/Bun.
+  Lives inside `packages/avm` (it's a host-side concern; the host CLI
+  starts/installs it).
+- **`avm-bridge`** — a separate CLI that lives inside every avm
+  container. Built from `packages/avm-bridge`, bundled as a single JS
+  file, bind-mounted from the repo's `dist/` directory, invoked via
+  the container's Node/Bun.
 
 Containers reach the daemon via host networking — `localhost:$AVM_HOST_PORT`.
 No socket mounts, no SSH, no extra privileges.
@@ -88,16 +134,16 @@ No socket mounts, no SSH, no extra privileges.
 └──────────┬────────────────────────────────────┘
            │ host networking
 ┌──────────▼────────────── container ───────────┐
-│  avm-bridge (Connect client) --> daemon         │
-│  agent runs: `avm-bridge service start chrome`  │
+│  avm-bridge (Connect client) --> daemon       │
+│  agent runs: `avm-bridge service start chrome`│
 └───────────────────────────────────────────────┘
 ```
 
 ### RPC surface (v1)
 
 Protos live at `proto/avm/v1/services.proto`. Buf is the codegen
-toolchain (`buf.yaml`, `buf.gen.yaml`); generated TypeScript lands under
-`gen/` and is consumed by both the daemon and the shim.
+toolchain (`buf.yaml`, `buf.gen.yaml`); generated TypeScript lands in
+`packages/shared/src/gen/` and is consumed by both packages.
 
 ```proto
 syntax = "proto3";
@@ -334,12 +380,12 @@ Additions to `applyPostCreationSetup` in `lib/session.ts` and the
 `avm clean <id>` removes the corresponding entry from
 `~/.avm/daemon/tokens.json` as part of its existing teardown.
 
-### The shim: `avm-bridge`
+### `avm-bridge` (in-container CLI)
 
-Single bundled JS file at `dist/avm-bridge.mjs`, produced by the same
-esbuild step that builds `dist/avm.mjs`. Bind-mounted into every
-container at `/usr/local/bin/avm-bridge`. Runs under the container's
-Node or Bun (already present for development).
+Built from `packages/avm-bridge`, bundled to `dist/avm-bridge.mjs`.
+Bind-mounted into every container at `/usr/local/bin/avm-bridge`.
+Runs under the container's Node or Bun (already present for
+development).
 
 Command surface:
 
@@ -392,29 +438,53 @@ indicates that — the agent can retry by invoking `avm-bridge` later.
 
 ## File Changes
 
-New:
-- `proto/avm/v1/services.proto` — RPC definitions
-- `buf.yaml`, `buf.gen.yaml` — Buf config
-- `gen/` — generated TypeScript from protos (gitignored or committed, TBD in plan)
-- `cli/commands/daemon.ts` — `avm daemon [install|uninstall|status]`
-- `cli/commands/service.ts` — `avm service [ls|status|start|stop]` (host-side parity with the shim)
-- `lib/daemon/server.ts` — Connect server, service handlers
-- `lib/daemon/registry.ts` — in-memory service registry, health checks, process bookkeeping
-- `lib/daemon/auth.ts` — token generation, `tokens.json` I/O, Connect auth interceptor
-- `lib/daemon/client.ts` — shared Connect client (used by `avm service` and `avm-bridge`)
-- `lib/daemon/launchd.ts` — plist generation + load/unload
-- `cli/avm-bridge.ts` — shim entrypoint
-- `examples/config.yaml` — worked example including the Chrome block
+### Workspace scaffolding (new)
+- `pnpm-workspace.yaml` — declares `packages/*`
+- `packages/avm/package.json` — host CLI package (absorbs existing root deps)
+- `packages/avm-bridge/package.json` — in-container CLI package
+- `packages/shared/package.json` — proto types + Connect client
 
-Modified:
-- `lib/config-file.ts` — parse `daemon.` and `services.` blocks; extend `AvmConfig`
-- `lib/session.ts` — mount the shim, export `AVM_HOST_PORT` / `AVM_HOST_TOKEN` / `AVM_CONTAINER_NAME`, provision tokens, generate `host-services.md`, ensure daemon is up
-- `cli/commands/create.ts` — provision token before `docker run`
-- `cli/commands/clean.ts` — remove token entry on teardown
-- `cli/avm.ts` — register `daemon` and `service` subcommands
-- `templates/vm-claude.md` — point the inner agent at `~/.claude/host-services.md`
-- `package.json` — add esbuild step for `dist/avm-bridge.mjs`, Connect/Buf deps
-- `README.md` — "Host Services" section, `~/.avm/daemon/` in Host Data Layout
+### Proto + codegen (new)
+- `proto/avm/v1/services.proto` — RPC definitions
+- `buf.yaml`, `buf.gen.yaml` — Buf config; generates into `packages/shared/src/gen/`
+
+### `packages/avm` (host CLI) — new files
+- `src/daemon/server.ts` — Connect server, service handlers
+- `src/daemon/registry.ts` — in-memory service registry, health checks, process bookkeeping
+- `src/daemon/auth.ts` — token generation, `tokens.json` I/O, Connect auth interceptor
+- `src/daemon/launchd.ts` — plist generation + load/unload
+- `src/cli/commands/daemon.ts` — `avm daemon [install|uninstall|status]`
+- `src/cli/commands/service.ts` — `avm service [ls|status|start|stop]` (host-side parity)
+
+### `packages/avm` (host CLI) — modified files
+- `src/cli/avm.ts` — register `daemon` and `service` subcommands
+- `src/cli/commands/create.ts` — provision token before `docker run`
+- `src/cli/commands/clean.ts` — remove token entry on teardown
+- `src/lib/config-file.ts` — parse `daemon.` and `services.` blocks; extend `AvmConfig`
+- `src/lib/session.ts` — mount the bridge, export `AVM_HOST_PORT` / `AVM_HOST_TOKEN` / `AVM_CONTAINER_NAME`, provision tokens, generate `host-services.md`, ensure daemon is up
+
+### `packages/avm-bridge` (in-container CLI) — new files
+- `src/cli/avm-bridge.ts` — citty entrypoint
+- `src/cli/commands/service.ts` — `avm-bridge service [ls|status|start|stop]`
+
+### `packages/shared` — new files
+- `src/client.ts` — Connect client (used by both `avm service` and `avm-bridge`)
+- `src/config.ts` — shared config types (service definitions, daemon config)
+- `src/gen/` — Buf-generated TypeScript from protos
+
+### Root-level changes
+- `examples/config.yaml` — worked example including the Chrome block
+- `templates/vm-claude.md` — point the avm agent at `~/.claude/host-services.md`
+- `README.md` — "Host Services" section, `~/.avm/daemon/` in Host Data Layout, workspace layout
+- `CLAUDE.md` — update File Structure to reflect workspace layout
+- Root `package.json` — becomes workspace root (scripts, devDeps only)
+- `bin/avm.mjs` — updated path to `dist/avm.mjs`
+
+### Migration note
+Existing files under `cli/`, `lib/` move into `packages/avm/src/`.
+This is a one-time restructure as part of this feature. The workspace
+migration and the feature implementation can be separate commits (or
+even separate PRs) to keep the diff reviewable.
 
 ## Open Questions / Implementation Notes
 
