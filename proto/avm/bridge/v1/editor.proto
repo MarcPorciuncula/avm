@@ -1,0 +1,19 @@
+syntax = "proto3";
+package avm.bridge.v1;
+
+service EditorService {
+  rpc OpenFile(OpenFileRequest) returns (OpenFileResponse);
+}
+
+message OpenFileRequest {
+  string path = 1;
+  int32 line = 2;
+  int32 column = 3;
+  string editor = 4;
+}
+
+message OpenFileResponse {
+  string editor = 1;
+  string ssh_host = 2;
+  string command = 3;
+}
