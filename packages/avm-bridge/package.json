@@ -1,0 +1,12 @@
+{
+  "name": "@avm/bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@avm/shared": "workspace:*",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-node": "^2.0.0",
+    "citty": "^0.2.2"
+  }
+}

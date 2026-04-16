@@ -1,0 +1,13 @@
+{
+  "name": "@avm/daemon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@avm/shared": "workspace:*",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-node": "^2.0.0",
+    "yaml": "^2.8.3",
+    "zx": "^8.8.5"
+  }
+}
