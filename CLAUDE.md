@@ -42,6 +42,14 @@ argument concatenation breaks anything non-trivial.
   copy `vm-claude.md` into `~/.avm/system/claude/CLAUDE.md` only if the
   target doesn't already exist, so users can customize freely without
   losing their edits on upgrade.
+- **`templates/vm-claude.md` is scoped to in-container needs only.**
+  This file is the only guidance the inner agent sees about `avm`.
+  Keep it minimal — describe only what the agent needs to operate
+  *inside* the sandbox. Do not mention host-side management
+  (`avm` subcommands, paths under `~/.avm/`, `config.yaml`, image
+  provisioning, the `avm` repo itself) or anything the inner agent
+  cannot act on from within the container. If it's not actionable from
+  inside the sandbox, it does not belong here.
 - **`examples/` ships user-facing starting points.** `examples/Dockerfile`
   is the reference user Dockerfile users copy to `~/.avm/Dockerfile`.
 - **No automated tests.** This is a CLI glue layer; the valuable
