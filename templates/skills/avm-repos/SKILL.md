@@ -45,3 +45,14 @@ avm-link <repo-name>
 ```
 
 Safe to re-run. Repos not in the config are a no-op.
+
+## Scope: clone and setup only
+
+After cloning and running `avm-link`, you may install workspace
+dependencies (e.g. `pnpm install`, `bundle install`) but **stop
+there**. Do not start services, dev servers, run database migrations,
+or take any action that affects runtime state or makes assumptions
+about external systems — unless the user explicitly asks.
+
+"Set up the repo" means clone it, link it, and install dependencies —
+not run it.
