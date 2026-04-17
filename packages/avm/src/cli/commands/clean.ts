@@ -1,9 +1,9 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { confirm, isCancel, cancel } from "@clack/prompts";
 import { listAvmVms, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
 import { syncSshConfig } from "../../lib/ssh-config.ts";
 import { unregisterContainer } from "../../lib/session.ts";
+import { confirm } from "../../lib/prompts.ts";
 
 export const cleanCommand = defineCommand({
   meta: {
@@ -83,10 +83,10 @@ export const cleanCommand = defineCommand({
       if (target.needsConfirm) {
         const ok = await confirm({
           message: `Delete ${target.name}?`,
-          initialValue: false,
+          default: false,
         });
-        if (isCancel(ok) || !ok) {
-          cancel(`Skipped ${target.name}.`);
+        if (!ok) {
+          console.log(`Skipped ${target.name}.`);
           continue;
         }
       }
@@ -94,10 +94,10 @@ export const cleanCommand = defineCommand({
       if (target.status === "running") {
         const ok = await confirm({
           message: `${target.name} is still running. Stop and delete it?`,
-          initialValue: false,
+          default: false,
         });
-        if (isCancel(ok) || !ok) {
-          cancel(`Skipped ${target.name}.`);
+        if (!ok) {
+          console.log(`Skipped ${target.name}.`);
           continue;
         }
       }
