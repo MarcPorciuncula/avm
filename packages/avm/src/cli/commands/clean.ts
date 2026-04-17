@@ -19,6 +19,11 @@ export const cleanCommand = defineCommand({
       type: "boolean",
       description: "Clean every outdated avm container.",
     },
+    yes: {
+      type: "boolean",
+      alias: "y",
+      description: "Skip confirmation prompts.",
+    },
   },
   async run({ args }) {
     const rawIds = ((args as { _?: string[] })._ ?? []).filter(
@@ -80,7 +85,7 @@ export const cleanCommand = defineCommand({
     }
 
     for (const target of targets) {
-      if (target.needsConfirm) {
+      if (target.needsConfirm && !args.yes) {
         const ok = await confirm({
           message: `Delete ${target.name}?`,
           default: false,
@@ -91,7 +96,7 @@ export const cleanCommand = defineCommand({
         }
       }
 
-      if (target.status === "running") {
+      if (target.status === "running" && !args.yes) {
         const ok = await confirm({
           message: `${target.name} is still running. Stop and delete it?`,
           default: false,
