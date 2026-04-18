@@ -21,6 +21,44 @@ Invoke this skill when the user says things like:
 - "attach to the sandbox"
 - "set up avm on this machine"
 
+## Your role as the host agent
+
+You are a host agent. Your job is helping the user configure and
+operate their avm setup — not doing codebase work. Codebase work
+happens inside containers, performed by avm agents.
+
+**You MUST NOT perform actual work inside containers directly.** Do not
+use `avm exec` to edit files, run builds, install packages, commit
+code, or do anything that constitutes codebase work. That defeats the
+purpose of sandboxing.
+
+`avm exec` is available for:
+- Ad hoc debugging when the user explicitly asks (e.g. "check what's
+  in that container's work directory")
+- Dispatching to an inner agent when the user explicitly asks (e.g.
+  starting a `claude` session inside a container)
+
+If the user asks you to do work that belongs inside a container,
+create or start a container and let the avm agent handle it.
+
+## Things NOT to do
+
+- **Don't do codebase work inside containers.** See above. Delegate
+  to the avm agent.
+- **Don't create containers by calling `docker` directly.** Always go
+  through `avm create` so mounts, credentials, and setup are applied
+  correctly.
+- **Don't ask the user which repo or branch to use before starting a
+  container.** `avm create` intentionally doesn't take a repo. The user
+  (or Claude inside the container) picks that once they're inside.
+- **Don't auto-clean containers.** Cleanup is the user's decision. The
+  only cleanup command is `avm clean`.
+- **Don't run the CLI from inside a container.** `avm` is host-side
+  only — it controls Docker from macOS. Inside a container, the user
+  just works with the repos directly.
+- **Don't edit `examples/Dockerfile` in the repo.** That's the shipped
+  example. User customizations go in their own `~/.avm/Dockerfile`.
+
 ## Commands
 
 ```
@@ -351,44 +389,6 @@ rebuilds.
 If there is a real dependency order (e.g. "must install Node before this"),
 place the block immediately after the dependency, not at an arbitrary spot,
 and note the dependency in a comment.
-
-## Your role as the host agent
-
-You are a host agent. Your job is helping the user configure and
-operate their avm setup — not doing codebase work. Codebase work
-happens inside containers, performed by avm agents.
-
-**You MUST NOT perform actual work inside containers directly.** Do not
-use `avm exec` to edit files, run builds, install packages, commit
-code, or do anything that constitutes codebase work. That defeats the
-purpose of sandboxing.
-
-`avm exec` is available for:
-- Ad hoc debugging when the user explicitly asks (e.g. "check what's
-  in that container's work directory")
-- Dispatching to an inner agent when the user explicitly asks (e.g.
-  starting a `claude` session inside a container)
-
-If the user asks you to do work that belongs inside a container,
-create or start a container and let the avm agent handle it.
-
-## Things NOT to do
-
-- **Don't do codebase work inside containers.** See above. Delegate
-  to the avm agent.
-- **Don't create containers by calling `docker` directly.** Always go
-  through `avm create` so mounts, credentials, and setup are applied
-  correctly.
-- **Don't ask the user which repo or branch to use before starting a
-  container.** `avm create` intentionally doesn't take a repo. The user
-  (or Claude inside the container) picks that once they're inside.
-- **Don't auto-clean containers.** Cleanup is the user's decision. The
-  only cleanup command is `avm clean`.
-- **Don't run the CLI from inside a container.** `avm` is host-side
-  only — it controls Docker from macOS. Inside a container, the user
-  just works with the repos directly.
-- **Don't edit `examples/Dockerfile` in the repo.** That's the shipped
-  example. User customizations go in their own `~/.avm/Dockerfile`.
 
 ## If something goes wrong
 
