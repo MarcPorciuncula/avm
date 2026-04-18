@@ -337,6 +337,21 @@ If a command works during `docker build` but is missing at runtime:
 They are complementary: the Dockerfile provides the tools, volumes keep
 the caches warm. The volume must never shadow the tool install.
 
+### Adding tools to the Dockerfile
+
+**Always append new `RUN` blocks at the end of `~/.avm/Dockerfile`**, unless
+the new tool has an explicit dependency on something installed later in the
+file (e.g. it must be compiled with a toolchain that appears further down).
+
+Inserting a block in the middle invalidates the Docker layer cache for every
+layer below the insertion point, forcing a full rebuild of the rest of the
+file. Appending preserves all existing cached layers — only the new block
+rebuilds.
+
+If there is a real dependency order (e.g. "must install Node before this"),
+place the block immediately after the dependency, not at an arbitrary spot,
+and note the dependency in a comment.
+
 ## Your role as the host agent
 
 You are a host agent. Your job is helping the user configure and
