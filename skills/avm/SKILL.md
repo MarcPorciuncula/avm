@@ -1,25 +1,17 @@
 ---
 name: avm
-description: Use when the user asks to spin up, attach to, list, or clean up avm sandbox containers, or configure avm (Dockerfile, volumes, caches, config.yaml, mirrors, credentials, services, daemon) — the CLI for managing Docker-based Claude Code sandboxes.
+description: Use when the user explicitly mentions avm or an avm container by name/ID — to spin up, attach, list, clean, or configure avm (Dockerfile, volumes, caches, config.yaml, mirrors, credentials, services, daemon).
 ---
 
 # Using `avm`
 
-`avm` is a CLI (installed globally via `pnpm link --global` from this
-repo) that manages sandboxed agent containers via Docker. Use it when
-the user wants to work inside an isolated container with full Claude Code
-autonomy (`--dangerously-skip-permissions`).
+`avm` manages sandboxed agent containers via Docker.
 
 ## When to use this skill
 
-Invoke this skill when the user says things like:
-- "give me a sandbox / container / workspace"
-- "spin up an avm"
-- "start a fresh container to work on X"
-- "list my containers" / "what sandboxes are running"
-- "clean up that container" / "tear it down"
-- "attach to the sandbox"
-- "set up avm on this machine"
+Invoke this skill when the user explicitly mentions `avm` or an avm
+container by name or ID (e.g. "spin up an avm", "my avm container",
+"avm-k7xf2").
 
 ## Your role as the host agent
 
@@ -29,8 +21,7 @@ happens inside containers, performed by avm agents.
 
 **You MUST NOT perform actual work inside containers directly.** Do not
 use `avm exec` to edit files, run builds, install packages, commit
-code, or do anything that constitutes codebase work. That defeats the
-purpose of sandboxing.
+code, or do anything that constitutes codebase work.
 
 `avm exec` is available for:
 - Ad hoc debugging when the user explicitly asks (e.g. "check what's
@@ -43,21 +34,16 @@ create or start a container and let the avm agent handle it.
 
 ## Things NOT to do
 
-- **Don't do codebase work inside containers.** See above. Delegate
-  to the avm agent.
-- **Don't create containers by calling `docker` directly.** Always go
-  through `avm create` so mounts, credentials, and setup are applied
-  correctly.
+- **Don't use `docker` directly for any container operation.** Always go
+  through `avm` — it maintains state (registered containers, host secrets,
+  mounts) that Docker knows nothing about.
 - **Don't ask the user which repo or branch to use before starting a
-  container.** `avm create` intentionally doesn't take a repo. The user
-  (or Claude inside the container) picks that once they're inside.
-- **Don't auto-clean containers.** Cleanup is the user's decision. The
-  only cleanup command is `avm clean`.
-- **Don't run the CLI from inside a container.** `avm` is host-side
-  only — it controls Docker from macOS. Inside a container, the user
-  just works with the repos directly.
-- **Don't edit `examples/Dockerfile` in the repo.** That's the shipped
-  example. User customizations go in their own `~/.avm/Dockerfile`.
+  container.** `avm create` doesn't take a repo — that choice happens
+  inside the container.
+- **Never stop or clean a container through docker**, use the `avm` cli only.
+- **Don't run the CLI from inside a container.** `avm` is host-side only.
+- **Don't edit `examples/Dockerfile` in the repo.** User customizations
+  go in `~/.avm/Dockerfile`.
 
 ## Commands
 
@@ -93,13 +79,10 @@ avm service stop <name>   # Stop a host service
 avm service status <name> # Show status of a host service
 ```
 
-Use `avm create`, `avm stop`, `avm clean`, `avm exec`, etc. for all
-container operations. Do not bypass avm and use docker directly.
-
 Images are infrastructure — excluded from `avm list` and never touched
 by `avm clean`. Rebuild them with `avm provision`.
 
-IDs are the 5-char suffix after `avm-` (e.g. `k7xf2`). Prefixes work as
+IDs are the suffix after `avm-` (e.g. `k7xf2`). Prefixes work as
 long as they're unambiguous. `avm clean` with a prefix prompts for
 confirmation before deleting.
 
@@ -146,9 +129,7 @@ cd <repo>
 avm-link            # applies any symlinks declared in ~/.avm/config.yaml
 ```
 
-`avm` doesn't clone repos for you — that's the agent's job inside the
-container. The CLI's job is to make the mirrors, overlay files, and
-`avm-link` available.
+`avm` doesn't clone repos — cloning happens inside the container.
 
 ### User wants to know what's running
 
@@ -184,8 +165,7 @@ Running `avm ssh-config install` (or accepting the prompt on first
 extra flags. Useful for tools that key off the literal `ssh` command
 (e.g. Warp's terminal "warpify" detection, Cursor remote-SSH).
 
-Containers created before SSH support was added won't have an SSH port
-assigned. Recreate them with `avm create` to get one.
+Containers without an SSH port assigned must be recreated with `avm create`.
 
 ## Inside the Container
 
@@ -241,9 +221,8 @@ Optional but recommended:
   README for the schema. Drop source files under `~/.avm/volumes/` and
   `~/.avm/files/`.
 
-Don't create `~/.avm/` directories the user won't populate. Empty
-scaffolding clutters their home; `avm create` creates the pieces it
-needs on demand (`ensureHostScaffolding` in `lib/session.ts`).
+Don't create `~/.avm/` directories the user won't populate. `avm create`
+creates what it needs on demand.
 
 ## Host services and the daemon
 
@@ -311,24 +290,10 @@ commands.
 
 ## Configuring volumes (caches and persistent data)
 
-Volumes in `~/.avm/config.yaml` are **Docker bind mounts**. At container
-start, each volume replaces the directory at the target path with the
-contents of the host directory. This means **a volume masks whatever the
-image had at that path** — including toolchain binaries installed during
-`docker build`.
-
-### The masking problem
-
-If the Dockerfile installs Rust (`rustup`, `cargo`) into `~/.cargo/`,
-and `config.yaml` declares `cargo:~/.cargo`, the bind mount replaces the
-entire `~/.cargo` directory with an empty host folder. The toolchain
-binaries disappear at runtime even though they were installed at build
-time.
-
-### The fix: mount cache subdirectories, not toolchain roots
-
-Only mount the directories that hold downloaded/cached artifacts — not
-the directory that contains the toolchain binaries.
+**Mount cache subdirectories, not toolchain roots.** Docker bind mounts
+replace the target directory entirely at container start — a volume
+targeting `~/.cargo` masks all Rust toolchain binaries installed during
+`docker build`, even if the host directory is empty.
 
 | Toolchain | Wrong (masks binaries) | Right (caches only) |
 |-----------|------------------------|---------------------|
@@ -378,17 +343,10 @@ the caches warm. The volume must never shadow the tool install.
 ### Adding tools to the Dockerfile
 
 **Always append new `RUN` blocks at the end of `~/.avm/Dockerfile`**, unless
-the new tool has an explicit dependency on something installed later in the
-file (e.g. it must be compiled with a toolchain that appears further down).
+the tool has a dependency on something installed later in the file.
 
-Inserting a block in the middle invalidates the Docker layer cache for every
-layer below the insertion point, forcing a full rebuild of the rest of the
-file. Appending preserves all existing cached layers — only the new block
-rebuilds.
-
-If there is a real dependency order (e.g. "must install Node before this"),
-place the block immediately after the dependency, not at an arbitrary spot,
-and note the dependency in a comment.
+If there is a real dependency order, place the block immediately after the
+dependency and note it in a comment.
 
 ## If something goes wrong
 
