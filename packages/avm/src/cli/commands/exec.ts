@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { spawnSync } from "node:child_process";
-import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
+import { listAvmVms, resolveVmArg } from "../../lib/vm.ts";
 
 export const execCommand = defineCommand({
   meta: {
@@ -15,7 +15,7 @@ export const execCommand = defineCommand({
     },
     id: {
       type: "positional",
-      required: true,
+      required: false,
       description: "Short ID of the container.",
     },
   },
@@ -23,7 +23,7 @@ export const execCommand = defineCommand({
     const vms = await listAvmVms();
     let vmName: string;
     try {
-      vmName = resolveVmByPrefix(args.id, vms).vm.name;
+      vmName = resolveVmArg(args.id, vms).name;
     } catch (err) {
       console.error(`Error: ${(err as Error).message}`);
       process.exit(1);
@@ -31,10 +31,17 @@ export const execCommand = defineCommand({
 
     // Everything after the positional id is the command to run.
     // citty consumes known args; the rest land in process.argv after `--` or
-    // after the positional. We find the id in argv and take everything after it.
+    // after the positional. When an id was given, find it in argv and slice
+    // after it. When no id was given (auto-selected), slice after "exec".
     const rawArgs = process.argv;
-    const idIndex = rawArgs.indexOf(args.id);
-    const cmdArgs = idIndex !== -1 ? rawArgs.slice(idIndex + 1) : [];
+    let cmdArgs: string[];
+    if (args.id !== undefined) {
+      const idIndex = rawArgs.indexOf(args.id);
+      cmdArgs = idIndex !== -1 ? rawArgs.slice(idIndex + 1) : [];
+    } else {
+      const execIndex = rawArgs.lastIndexOf("exec");
+      cmdArgs = execIndex !== -1 ? rawArgs.slice(execIndex + 1) : [];
+    }
 
     if (cmdArgs.length === 0) {
       console.error("Error: no command specified. Usage: avm exec <id> <cmd...>");

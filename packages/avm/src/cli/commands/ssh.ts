@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import {
   ensureSshd,
   listAvmVms,
-  resolveVmByPrefix,
+  resolveVmArg,
   sshToVm,
 } from "../../lib/vm.ts";
 
@@ -14,7 +14,7 @@ export const sshCommand = defineCommand({
   args: {
     id: {
       type: "positional",
-      required: true,
+      required: false,
       description: "Short ID of the container.",
     },
     "print-command": {
@@ -32,7 +32,7 @@ export const sshCommand = defineCommand({
     const vms = await listAvmVms();
     let vm;
     try {
-      vm = resolveVmByPrefix(args.id, vms).vm;
+      vm = resolveVmArg(args.id, vms);
     } catch (err) {
       console.error(`Error: ${(err as Error).message}`);
       process.exit(1);
