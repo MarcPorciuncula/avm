@@ -222,6 +222,33 @@ export function resolveVmByPrefix(
 }
 
 /**
+ * Resolve an optional user-provided VM argument to a single VmInfo.
+ *
+ * - input defined → delegates to resolveVmByPrefix(input, vms).vm
+ * - input undefined, no VMs → throws
+ * - input undefined, exactly one VM → logs and returns it
+ * - input undefined, multiple VMs → throws with a list
+ */
+export function resolveVmArg(
+  input: string | undefined,
+  vms: VmInfo[],
+): VmInfo {
+  if (input !== undefined) {
+    return resolveVmByPrefix(input, vms).vm;
+  }
+  if (vms.length === 0) {
+    throw new Error("No avm containers found.");
+  }
+  if (vms.length === 1) {
+    const vm = vms[0]!;
+    console.log(`Using ${vm.name}`);
+    return vm;
+  }
+  const list = vms.map((vm) => ` - ${vm.id}`).join("\n");
+  throw new Error(`Multiple containers exist — specify one:\n${list}`);
+}
+
+/**
  * Try to open a TCP connection to localhost:port. Resolves true on connect,
  * false on any error (refused, reset, timeout).
  */

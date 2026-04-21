@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
-import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
+import { listAvmVms, resolveVmArg, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const stopCommand = defineCommand({
   meta: {
@@ -29,19 +29,22 @@ export const stopCommand = defineCommand({
         return;
       }
     } else {
-      if (rawIds.length === 0) {
-        console.error(
-          "Error: provide one or more IDs or use --all.\nUsage: avm stop <id...> | --all",
-        );
-        process.exit(1);
-      }
       targets = [];
-      for (const id of rawIds) {
+      if (rawIds.length === 0) {
         try {
-          targets.push(resolveVmByPrefix(id, vms).vm.name);
+          targets.push(resolveVmArg(undefined, vms).name);
         } catch (err) {
           console.error(`Error: ${(err as Error).message}`);
           process.exit(1);
+        }
+      } else {
+        for (const id of rawIds) {
+          try {
+            targets.push(resolveVmByPrefix(id, vms).vm.name);
+          } catch (err) {
+            console.error(`Error: ${(err as Error).message}`);
+            process.exit(1);
+          }
         }
       }
     }

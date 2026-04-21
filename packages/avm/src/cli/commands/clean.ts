@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { confirm, isCancel, cancel } from "@clack/prompts";
-import { listAvmVms, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
+import { listAvmVms, resolveVmArg, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
 import { syncSshConfig } from "../../lib/ssh-config.ts";
 import { unregisterContainer } from "../../lib/session.ts";
 
@@ -57,24 +57,28 @@ export const cleanCommand = defineCommand({
         return;
       }
     } else {
-      if (rawIds.length === 0) {
-        console.error(
-          "Error: provide one or more IDs or use --all / --all-outdated.\nUsage: avm clean <id...> | --all | --all-outdated",
-        );
-        process.exit(1);
-      }
       targets = [];
-      for (const id of rawIds) {
+      if (rawIds.length === 0) {
         try {
-          const { vm, isPartial } = resolveVmByPrefix(id, vms);
-          targets.push({
-            name: vm.name,
-            status: vm.status,
-            needsConfirm: isPartial,
-          });
+          const vm = resolveVmArg(undefined, vms);
+          targets.push({ name: vm.name, status: vm.status, needsConfirm: false });
         } catch (err) {
           console.error(`Error: ${(err as Error).message}`);
           process.exit(1);
+        }
+      } else {
+        for (const id of rawIds) {
+          try {
+            const { vm, isPartial } = resolveVmByPrefix(id, vms);
+            targets.push({
+              name: vm.name,
+              status: vm.status,
+              needsConfirm: isPartial,
+            });
+          } catch (err) {
+            console.error(`Error: ${(err as Error).message}`);
+            process.exit(1);
+          }
         }
       }
     }

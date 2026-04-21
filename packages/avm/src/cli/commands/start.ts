@@ -8,7 +8,7 @@ import {
   attachToVm,
   ensureSshd,
   listAvmVms,
-  resolveVmByPrefix,
+  resolveVmArg,
   shortIdOf,
   sshToVm,
 } from "../../lib/vm.ts";
@@ -21,7 +21,7 @@ export const startCommand = defineCommand({
   args: {
     id: {
       type: "positional",
-      required: true,
+      required: false,
       description: "Short ID (or unique prefix) of the container to resume.",
     },
     attach: {
@@ -43,20 +43,13 @@ export const startCommand = defineCommand({
       process.exit(1);
     }
 
-    if (!args.id) {
-      console.error(
-        "Error: avm start requires a container id. Use 'avm create' to start a new session.",
-      );
-      process.exit(1);
-    }
-
     const vms = await listAvmVms();
 
     let vm: (typeof vms)[number];
     let vmName: string;
     let vmStatus: string;
     try {
-      vm = resolveVmByPrefix(args.id, vms).vm;
+      vm = resolveVmArg(args.id, vms);
       vmName = vm.name;
       vmStatus = vm.status;
     } catch (err) {
