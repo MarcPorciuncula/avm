@@ -8,6 +8,10 @@ import {
   OpenFileResponseSchema,
 } from "@avm/shared/gen/avm/bridge/v1/editor_pb";
 import {
+  BrowserService as BridgeBrowserService,
+  OpenUrlResponseSchema,
+} from "@avm/shared/gen/avm/bridge/v1/browser_pb";
+import {
   ServicesService as BridgeServicesService,
   ServiceSchema as BridgeServiceSchema,
   ListServicesResponseSchema as BridgeListServicesResponseSchema,
@@ -28,6 +32,7 @@ import {
 } from "@avm/shared/gen/avm/host/v1/containers_pb";
 
 import { openFile } from "./editor.js";
+import { openUrl } from "./browser.js";
 import type { ServiceRegistry, ServiceConfig, ServiceStatus } from "./registry.js";
 import type { StateStore } from "./state.js";
 
@@ -153,6 +158,14 @@ export function createRoutes(
           sshHost: result.sshHost,
           command: result.command,
         });
+      },
+    });
+
+    // Bridge browser API (called by containers)
+    router.service(BridgeBrowserService, {
+      async openUrl(req) {
+        const result = openUrl({ url: req.url });
+        return create(OpenUrlResponseSchema, { url: result.url });
       },
     });
 

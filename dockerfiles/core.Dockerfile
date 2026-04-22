@@ -76,6 +76,13 @@ RUN chmod 755 /opt/avm/start-dockerd.sh
 COPY templates/start-sshd.sh /opt/avm/start-sshd.sh
 RUN chmod 755 /opt/avm/start-sshd.sh
 
+# --- xdg-open shim: forward browser-open requests to the host via avm-bridge ---
+# Tools like `gh`, `claude /login`, npm, git web--browse, Python webbrowser,
+# etc. fall back to `xdg-open` when they need to open a URL. We provide a shim
+# that calls `avm-bridge browser open` so the URL opens on the host instead.
+COPY templates/xdg-open.sh /usr/local/bin/xdg-open
+RUN chmod 755 /usr/local/bin/xdg-open
+
 # --- In-container CLAUDE.md and skills ---
 
 COPY templates/vm-claude.md /home/agent/CLAUDE.md
