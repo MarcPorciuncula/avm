@@ -36,15 +36,31 @@ function writeSettings(settings: ClaudeSettings): void {
   writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
 }
 
+/** Print a settings-load/write error with the original message and exit 1. Use for install/uninstall. */
+function reportSettingsError(err: unknown): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(msg);
+  process.exit(1);
+}
+
 const installSub = defineCommand({
   meta: {
     name: "install",
     description: "Install host-notification hooks into the in-container Claude settings.",
   },
   async run() {
-    const settings = loadSettings();
+    let settings: ClaudeSettings;
+    try {
+      settings = loadSettings();
+    } catch (err) {
+      reportSettingsError(err);
+    }
     const next = installHooks(settings);
-    writeSettings(next);
+    try {
+      writeSettings(next);
+    } catch (err) {
+      reportSettingsError(err);
+    }
     updateState({ notifications: { installPrompt: "installed" } });
     console.log(`Installed avm notification hooks in ${SETTINGS_PATH}.`);
     console.log("Open the avm container and run `claude` — Notification and Stop will ping the host.");
@@ -57,17 +73,29 @@ const uninstallSub = defineCommand({
     description: "Remove host-notification hooks from the in-container Claude settings.",
   },
   async run() {
-    const settings = loadSettings();
+    let settings: ClaudeSettings;
+    try {
+      settings = loadSettings();
+    } catch (err) {
+      reportSettingsError(err);
+    }
     const before = countAvmEntries(settings);
-    const next = uninstallHooks(settings);
-    writeSettings(next);
-    // Clear the prompt decision so a future `provision`/`start` re-asks.
-    updateState({ notifications: { installPrompt: undefined } });
+
     if (before === 0) {
       console.log(`No avm hook entries found in ${SETTINGS_PATH}. Nothing to uninstall.`);
-    } else {
-      console.log(`Removed ${before} avm hook entr${before === 1 ? "y" : "ies"} from ${SETTINGS_PATH}.`);
+      // Still clear the prompt decision so a future `provision`/`start` re-asks.
+      updateState({ notifications: { installPrompt: undefined } });
+      return;
     }
+
+    const next = uninstallHooks(settings);
+    try {
+      writeSettings(next);
+    } catch (err) {
+      reportSettingsError(err);
+    }
+    updateState({ notifications: { installPrompt: undefined } });
+    console.log(`Removed ${before} avm hook entr${before === 1 ? "y" : "ies"} from ${SETTINGS_PATH}.`);
   },
 });
 
@@ -155,9 +183,22 @@ export async function maybePromptForInstall(): Promise<boolean> {
   }
 
   if (answer === true) {
-    const settings = loadSettings();
+    let settings: ClaudeSettings;
+    try {
+      settings = loadSettings();
+    } catch (err) {
+      log.error(err instanceof Error ? err.message : String(err));
+      log.warn("Skipped install — fix settings.json and run `avm notify install` to retry.");
+      return true;
+    }
     const next = installHooks(settings);
-    writeSettings(next);
+    try {
+      writeSettings(next);
+    } catch (err) {
+      log.error(err instanceof Error ? err.message : String(err));
+      log.warn("Skipped install — fix the issue and run `avm notify install` to retry.");
+      return true;
+    }
     updateState({ notifications: { installPrompt: "installed" } });
     log.success(`Installed avm notification hooks in ${SETTINGS_PATH}.`);
   } else {
