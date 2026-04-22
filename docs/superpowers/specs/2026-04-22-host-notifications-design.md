@@ -171,15 +171,16 @@ Citty `defineCommand` mirroring the existing command shapes:
   load `~/.avm/system/claude/settings.json` (creates `{}` if absent), strip
   any existing entries whose `command` starts with `avm-bridge claude-hook `,
   then append fresh entries (see below). Sets
-  `notifications.install: true` and `notifications.prompted: true` in
-  `config.yaml`.
-- `avm notify uninstall` — same load/strip, no re-add. Sets
-  `notifications.install: false`. Leaves `prompted: true`.
+  `notifications.installPrompt: "installed"` in `~/.avm/state.json`.
+- `avm notify uninstall` — same load/strip, no re-add. Clears
+  `notifications.installPrompt` (sets it to `undefined`) so a future prompt
+  works again, mirroring `ssh-config uninstall`.
 - `avm notify status` — prints: hooks installed (yes/no, count of matching
-  entries), daemon `notifications.enabled`, current sound mapping, prompted
-  state.
+  entries), daemon `notifications.enabled` (from `config.yaml`), current
+  sound mapping, install-prompt state (from `state.json`).
 - `avm notify mute` / `avm notify unmute` — convenience for setting
-  `notifications.enabled` to `false`/`true`. Doesn't touch `settings.json`.
+  `notifications.enabled` in `config.yaml` to `false`/`true`. Doesn't touch
+  `settings.json` or `state.json`.
 
 ### Hook entries written
 
@@ -234,14 +235,12 @@ abort with a clear error and remediation hint — never overwrite.
 
 ### Configuration (`~/.avm/config.yaml`)
 
-New top-level `notifications` block. All fields optional; daemon and CLI fill
-defaults at read time:
+New top-level `notifications` block — *user-edited* settings only. All
+fields optional; daemon and CLI fill defaults at read time:
 
 ```yaml
 notifications:
   enabled: true                # daemon master switch (default true)
-  prompted: false              # set true once user has been asked
-  install: true                # informational: did host CLI install hooks?
   sounds:
     needs-attention:
       file: /System/Library/Sounds/Ping.aiff
@@ -254,13 +253,34 @@ notifications:
 Daemon re-reads on every `Notify` call (small file, cheap). No SIGHUP
 needed; toggling `enabled` or editing sounds takes effect immediately.
 
+### State (`~/.avm/state.json`)
+
+avm-managed state for the notifications feature. Mirrors the existing
+`sshConfig.installPrompt` shape:
+
+```json
+{
+  "notifications": {
+    "installPrompt": "installed"
+  }
+}
+```
+
+`installPrompt` ∈ `"installed" | "declined" | undefined`. Used by the
+first-run prompt to decide whether to ask the user. `avm notify install`
+sets it to `"installed"`; `avm notify uninstall` clears it to `undefined`
+so a future prompt works again. The first-run prompt only fires when
+`installPrompt` is `undefined`.
+
+User-edited settings live in `config.yaml`; avm-managed state lives in
+`state.json`. Mirroring the existing convention keeps the two files'
+responsibilities clean.
+
 ### First-run prompt
 
-Fires from:
-
-- **`avm provision`** — always runs after image build, *unless*
-  `notifications.prompted === true`.
-- **`avm start`** — fallback, runs only if `notifications.prompted` is unset.
+Fires from both `avm provision` and `avm start`, but only when
+`state.json` `notifications.installPrompt` is `undefined`. Both commands
+skip the prompt forever once the user has answered.
 
 Single `@clack/prompts` confirm:
 
@@ -271,11 +291,14 @@ Single `@clack/prompts` confirm:
    › Yes / No
 ```
 
-- Yes → run install logic (as `avm notify install`).
-- No → set `prompted: true, install: false`, no further changes.
+- Yes → run install logic (as `avm notify install`). Sets
+  `notifications.installPrompt: "installed"`.
+- No → sets `notifications.installPrompt: "declined"`. No changes to
+  `settings.json`.
 
-To re-prompt after answering No, the user runs the explicit command or
-clears `notifications.prompted` in `config.yaml`.
+To re-prompt after answering No, the user runs `avm notify install` (which
+sets `installPrompt: "installed"`) or `avm notify uninstall` (which clears
+`installPrompt`, so the next `provision`/`start` will re-ask).
 
 ## Data flow
 
@@ -311,7 +334,7 @@ For a single Stop event in container `myproj`, in-container Claude cwd
 | Outdated bridge binary sends unknown kind | Daemon returns `INVALID_ARGUMENT`; bridge swallows; silent. |
 | Hook stdin not piped / not JSON | Bridge proceeds without `cwd`; daemon omits the location line. |
 | Two simultaneous notifications | Both dispatch. macOS Notification Center coalesces visually; afplay overlap is fine. |
-| User answered No to first-run prompt | Both `provision` and `start` skip the prompt forever (until `prompted` flag cleared). |
+| User answered No to first-run prompt | Both `provision` and `start` skip the prompt forever (until `installPrompt` cleared via `avm notify uninstall`). |
 
 ## Out-of-scope (deferred)
 
