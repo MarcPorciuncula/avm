@@ -8,11 +8,10 @@ daemon:
   port: 6970
 
 # Image pruning — `avm provision` builds a new timestamped `avm:<ts>` tag
-# every run. Enable this to drop older tags after each provision so they
-# don't accumulate. Tags still in use by a container are always kept,
-# regardless of keep_recent (Docker would refuse the removal anyway).
+# every run. Tags still in use by a container are always kept, regardless
+# of keep_recent (Docker would refuse the removal anyway).
 prune_images:
-  enabled: false
+  enabled: true
   keep_recent: 1
 
 # Bind mounts applied to every session container
