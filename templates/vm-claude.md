@@ -26,3 +26,9 @@ or SSH tunnels are needed.
 Do not edit `~/CLAUDE.md` — it is system-provided and changes to it will
 be lost. Put persistent user-level instructions in `~/.claude/CLAUDE.md`
 instead.
+
+If you need something this sandbox doesn't provide (a missing credential
+directory, a host service, an additional mount, a tool not in the image),
+describe the *need* to the user — what path or capability, read-only vs.
+read-write, and why. Don't prescribe host-side config or Dockerfile edits;
+the user will translate the need into the correct change.
