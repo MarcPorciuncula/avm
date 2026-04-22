@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { provisionImages, pruneOldUserImages } from "../../lib/image.ts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
+import { maybePromptForInstall } from "./notify.ts";
 
 export const provisionCommand = defineCommand({
   meta: {
@@ -33,5 +34,9 @@ export const provisionCommand = defineCommand({
 
     console.log();
     console.log(`Start an agent session: avm create --attach`);
+    console.log();
+
+    // First-run prompt for host notifications. No-op if already answered.
+    await maybePromptForInstall();
   },
 });
