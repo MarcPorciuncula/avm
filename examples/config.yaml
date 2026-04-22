@@ -41,3 +41,17 @@ repos:
   my-project:
     symlinks:
       - envs/my-project.env:.env
+
+# Host notifications — sound + macOS notification when in-container Claude
+# fires a Notification or Stop hook. Defaults shown below; uncomment to
+# customise.
+#
+# notifications:
+#   enabled: true
+#   sounds:
+#     needs-attention:
+#       file: /System/Library/Sounds/Ping.aiff
+#       volume: 0.7
+#     complete:
+#       file: /System/Library/Sounds/Submarine.aiff
+#       volume: 1.0
