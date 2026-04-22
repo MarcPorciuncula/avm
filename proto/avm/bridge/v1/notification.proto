@@ -1,0 +1,20 @@
+syntax = "proto3";
+package avm.bridge.v1;
+
+service NotificationService {
+  rpc Notify(NotifyRequest) returns (NotifyResponse);
+}
+
+enum NotificationKind {
+  NOTIFICATION_KIND_UNSPECIFIED     = 0;
+  NOTIFICATION_KIND_NEEDS_ATTENTION = 1;
+  NOTIFICATION_KIND_COMPLETE        = 2;
+}
+
+message NotifyRequest {
+  NotificationKind kind = 1;
+  optional string cwd = 2;
+  optional string session_id = 3;
+}
+
+message NotifyResponse {}
