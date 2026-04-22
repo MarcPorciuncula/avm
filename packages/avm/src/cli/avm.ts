@@ -9,6 +9,7 @@ import { editorCommand } from "./commands/editor.ts";
 import { execCommand } from "./commands/exec.ts";
 import { sshCommand } from "./commands/ssh.ts";
 import { sshConfigCommand } from "./commands/ssh-config.ts";
+import { notifyCommand } from "./commands/notify.ts";
 import { provisionCommand } from "./commands/provision.ts";
 import { daemonCommand } from "./commands/daemon.ts";
 import { serviceCommand } from "./commands/service.ts";
@@ -28,6 +29,7 @@ const main = defineCommand({
     exec: execCommand,
     ssh: sshCommand,
     "ssh-config": sshConfigCommand,
+    notify: notifyCommand,
     stop: stopCommand,
     clean: cleanCommand,
     destroy: cleanCommand,
