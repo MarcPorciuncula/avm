@@ -108,7 +108,15 @@ function kindMeta(kind: NotificationKind): { key: "needs-attention" | "complete"
   }
 }
 
-/** Escape a string for safe interpolation into AppleScript double-quoted strings. */
+/**
+ * Escape a string for safe interpolation into a double-quoted AppleScript
+ * literal passed via `osascript -e <script>`. NOTE: This escaping relies on
+ * `osascript -e` pre-processing `\"` and `\\` before the script reaches the
+ * AppleScript parser. Standard AppleScript text literals do NOT honour
+ * backslash escapes — if the invocation ever changes (e.g. writing a
+ * `.applescript` file and running `osascript file.applescript`), this
+ * function will silently produce wrong output and must be revisited.
+ */
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
