@@ -7,6 +7,10 @@ export interface AvmState {
     /** Set when the user has answered the first-run install prompt. */
     installPrompt?: "installed" | "declined";
   };
+  notifications?: {
+    /** Set when the user has answered the first-run install prompt. */
+    installPrompt?: "installed" | "declined";
+  };
 }
 
 /** Read `~/.avm/state.json`. Returns `{}` if missing or malformed. */
