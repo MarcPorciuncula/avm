@@ -11,6 +11,11 @@ export interface DaemonConfig {
   port: number;
 }
 
+export interface PruneImagesConfig {
+  enabled: boolean;
+  keep_recent: number;
+}
+
 export interface ServiceDefinition {
   kind: "process" | "docker";
   command?: string[];
@@ -25,6 +30,7 @@ export interface ServiceCheck {
 export interface AvmConfig {
   editor?: EditorChoice;
   daemon: DaemonConfig;
+  prune_images: PruneImagesConfig;
   volumes: VolumeMount[];
   repos: Record<string, RepoConfig>;
   services: Record<string, ServiceDefinition>;
@@ -57,10 +63,20 @@ export interface SymlinkMount {
  */
 export function loadAvmConfig(): AvmConfig {
   if (!existsSync(avmConfigFile)) {
-    return { daemon: { port: 6970 }, volumes: [], repos: {}, services: {} };
+    return {
+      daemon: { port: 6970 },
+      prune_images: defaultPruneImagesConfig(),
+      volumes: [],
+      repos: {},
+      services: {},
+    };
   }
   const raw = readFileSync(avmConfigFile, "utf-8");
   return parseAvmConfig(raw);
+}
+
+function defaultPruneImagesConfig(): PruneImagesConfig {
+  return { enabled: false, keep_recent: 1 };
 }
 
 /**
@@ -126,7 +142,14 @@ export function generateAvmLinkScript(config: AvmConfig): string {
 
 // ---------- Validation ----------
 
-const TOP_LEVEL_KEYS = new Set(["editor", "volumes", "repos", "daemon", "services"]);
+const TOP_LEVEL_KEYS = new Set([
+  "editor",
+  "volumes",
+  "repos",
+  "daemon",
+  "prune_images",
+  "services",
+]);
 const VALID_EDITORS = new Set<string>(["code", "cursor"]);
 const REPO_KEYS = new Set(["symlinks"]);
 
@@ -148,10 +171,11 @@ function validate(data: unknown): AvmConfig {
 
   const editor = parseEditor(obj.editor);
   const daemon = parseDaemon(obj.daemon);
+  const prune_images = parsePruneImages(obj.prune_images);
   const volumes = parseVolumes(obj.volumes);
   const repos = parseRepos(obj.repos);
   const services = parseServices(obj.services);
-  return { editor, daemon, volumes, repos, services };
+  return { editor, daemon, prune_images, volumes, repos, services };
 }
 
 function parseEditor(raw: unknown): EditorChoice | undefined {
@@ -259,6 +283,7 @@ function splitShortForm(
 }
 
 const DAEMON_KEYS = new Set(["port"]);
+const PRUNE_IMAGES_KEYS = new Set(["enabled", "keep_recent"]);
 const SERVICE_KEYS = new Set(["kind", "command", "container", "check"]);
 const CHECK_KEYS = new Set(["tcp"]);
 const VALID_SERVICE_KINDS = new Set(["process", "docker"]);
@@ -293,6 +318,47 @@ function parseDaemon(raw: unknown): DaemonConfig {
     port = obj.port;
   }
   return { port };
+}
+
+function parsePruneImages(raw: unknown): PruneImagesConfig {
+  if (raw === undefined) return defaultPruneImagesConfig();
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "prune_images" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!PRUNE_IMAGES_KEYS.has(key)) {
+      throw new Error(
+        `${avmConfigFile}: unknown key "${key}" under prune_images. Allowed: ${[...PRUNE_IMAGES_KEYS].join(", ")}.`,
+      );
+    }
+  }
+  const defaults = defaultPruneImagesConfig();
+  let enabled = defaults.enabled;
+  if (obj.enabled !== undefined) {
+    if (typeof obj.enabled !== "boolean") {
+      throw new Error(
+        `${avmConfigFile}: prune_images.enabled must be a boolean (got ${describe(obj.enabled)}).`,
+      );
+    }
+    enabled = obj.enabled;
+  }
+  let keep_recent = defaults.keep_recent;
+  if (obj.keep_recent !== undefined) {
+    if (
+      typeof obj.keep_recent !== "number" ||
+      !Number.isInteger(obj.keep_recent) ||
+      obj.keep_recent < 0
+    ) {
+      throw new Error(
+        `${avmConfigFile}: prune_images.keep_recent must be a non-negative integer (got ${describe(obj.keep_recent)}).`,
+      );
+    }
+    keep_recent = obj.keep_recent;
+  }
+  return { enabled, keep_recent };
 }
 
 function parseServices(

@@ -289,6 +289,20 @@ This rebuilds the images. Docker layer caching means only changed layers
 are rebuilt, so incremental changes are fast. Running containers are
 unaffected — they use the image that existed at creation time.
 
+Each `avm provision` creates a new `avm:<timestamp>` tag and re-points
+`avm:latest`. Old tags accumulate over time. Opt into automatic cleanup
+in `~/.avm/config.yaml`:
+
+```yaml
+prune_images:
+  enabled: true
+  keep_recent: 1
+```
+
+After each successful build, tags older than the most recent
+`keep_recent` are removed. Tags still in use by a container are always
+kept, regardless of `keep_recent`.
+
 ### Adding a per-repo config
 
 Edit `~/.avm/config.yaml`:
