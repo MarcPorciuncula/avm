@@ -27,6 +27,19 @@ export interface ServiceCheck {
   tcp: string;
 }
 
+export interface NotificationSound {
+  file: string;
+  volume: number;
+}
+
+export interface NotificationsConfig {
+  enabled: boolean;
+  sounds: {
+    "needs-attention": NotificationSound;
+    complete: NotificationSound;
+  };
+}
+
 export interface AvmConfig {
   editor?: EditorChoice;
   daemon: DaemonConfig;
@@ -34,6 +47,7 @@ export interface AvmConfig {
   volumes: VolumeMount[];
   repos: Record<string, RepoConfig>;
   services: Record<string, ServiceDefinition>;
+  notifications: NotificationsConfig;
 }
 
 export interface VolumeMount {
@@ -69,6 +83,7 @@ export function loadAvmConfig(): AvmConfig {
       volumes: [],
       repos: {},
       services: {},
+      notifications: structuredClone(DEFAULT_NOTIFICATIONS),
     };
   }
   const raw = readFileSync(avmConfigFile, "utf-8");
@@ -89,6 +104,20 @@ export function setConfigEditor(editor: EditorChoice): void {
     : "";
   const doc = parseDocument(raw);
   doc.set("editor", editor);
+  writeFileSync(avmConfigFile, doc.toString());
+}
+
+/**
+ * Set the `notifications.enabled` field in `~/.avm/config.yaml`,
+ * preserving all other content and formatting. Creates the file if
+ * it doesn't exist.
+ */
+export function setNotificationsEnabled(enabled: boolean): void {
+  const raw = existsSync(avmConfigFile)
+    ? readFileSync(avmConfigFile, "utf-8")
+    : "";
+  const doc = parseDocument(raw);
+  doc.setIn(["notifications", "enabled"], enabled);
   writeFileSync(avmConfigFile, doc.toString());
 }
 
@@ -149,6 +178,7 @@ const TOP_LEVEL_KEYS = new Set([
   "daemon",
   "prune_images",
   "services",
+  "notifications",
 ]);
 const VALID_EDITORS = new Set<string>(["code", "cursor"]);
 const REPO_KEYS = new Set(["symlinks"]);
@@ -175,7 +205,8 @@ function validate(data: unknown): AvmConfig {
   const volumes = parseVolumes(obj.volumes);
   const repos = parseRepos(obj.repos);
   const services = parseServices(obj.services);
-  return { editor, daemon, prune_images, volumes, repos, services };
+  const notifications = parseNotifications(obj.notifications);
+  return { editor, daemon, prune_images, volumes, repos, services, notifications };
 }
 
 function parseEditor(raw: unknown): EditorChoice | undefined {
@@ -287,6 +318,24 @@ const PRUNE_IMAGES_KEYS = new Set(["enabled", "keep_recent"]);
 const SERVICE_KEYS = new Set(["kind", "command", "container", "check"]);
 const CHECK_KEYS = new Set(["tcp"]);
 const VALID_SERVICE_KINDS = new Set(["process", "docker"]);
+
+const NOTIFICATIONS_KEYS = new Set(["enabled", "sounds"]);
+const SOUND_KEYS = new Set(["file", "volume"]);
+const SOUND_NAMES = new Set(["needs-attention", "complete"]);
+
+const DEFAULT_NOTIFICATIONS: NotificationsConfig = {
+  enabled: true,
+  sounds: {
+    "needs-attention": {
+      file: "/System/Library/Sounds/Ping.aiff",
+      volume: 0.7,
+    },
+    complete: {
+      file: "/System/Library/Sounds/Submarine.aiff",
+      volume: 1.0,
+    },
+  },
+};
 
 function parseDaemon(raw: unknown): DaemonConfig {
   if (raw === undefined) return { port: 6970 };
@@ -477,6 +526,86 @@ function parseServices(
     out[name] = { kind, command, container, check: { tcp: checkObj.tcp } };
   }
   return out;
+}
+
+function parseNotifications(raw: unknown): NotificationsConfig {
+  if (raw === undefined) return structuredClone(DEFAULT_NOTIFICATIONS);
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "notifications" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!NOTIFICATIONS_KEYS.has(key)) {
+      throw new Error(
+        `${avmConfigFile}: unknown key "${key}" under notifications. Allowed: ${[...NOTIFICATIONS_KEYS].join(", ")}.`,
+      );
+    }
+  }
+
+  const result = structuredClone(DEFAULT_NOTIFICATIONS);
+
+  if (obj.enabled !== undefined) {
+    if (typeof obj.enabled !== "boolean") {
+      throw new Error(
+        `${avmConfigFile}: notifications.enabled must be a boolean (got ${describe(obj.enabled)}).`,
+      );
+    }
+    result.enabled = obj.enabled;
+  }
+
+  if (obj.sounds !== undefined) {
+    if (obj.sounds === null || typeof obj.sounds !== "object" || Array.isArray(obj.sounds)) {
+      throw new Error(
+        `${avmConfigFile}: notifications.sounds must be a mapping (got ${describe(obj.sounds)}).`,
+      );
+    }
+    const sounds = obj.sounds as Record<string, unknown>;
+    for (const key of Object.keys(sounds)) {
+      if (!SOUND_NAMES.has(key)) {
+        throw new Error(
+          `${avmConfigFile}: unknown key "${key}" under notifications.sounds. Allowed: ${[...SOUND_NAMES].join(", ")}.`,
+        );
+      }
+    }
+    for (const name of SOUND_NAMES) {
+      const entry = sounds[name];
+      if (entry === undefined) continue;
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(
+          `${avmConfigFile}: notifications.sounds.${name} must be a mapping (got ${describe(entry)}).`,
+        );
+      }
+      const e = entry as Record<string, unknown>;
+      for (const key of Object.keys(e)) {
+        if (!SOUND_KEYS.has(key)) {
+          throw new Error(
+            `${avmConfigFile}: unknown key "${key}" under notifications.sounds.${name}. Allowed: ${[...SOUND_KEYS].join(", ")}.`,
+          );
+        }
+      }
+      const target = result.sounds[name as "needs-attention" | "complete"];
+      if (e.file !== undefined) {
+        if (typeof e.file !== "string" || e.file.length === 0) {
+          throw new Error(
+            `${avmConfigFile}: notifications.sounds.${name}.file must be a non-empty string (got ${describe(e.file)}).`,
+          );
+        }
+        target.file = e.file;
+      }
+      if (e.volume !== undefined) {
+        if (typeof e.volume !== "number" || !Number.isFinite(e.volume) || e.volume < 0 || e.volume > 1) {
+          throw new Error(
+            `${avmConfigFile}: notifications.sounds.${name}.volume must be a number 0–1 (got ${describe(e.volume)}).`,
+          );
+        }
+        target.volume = e.volume;
+      }
+    }
+  }
+
+  return result;
 }
 
 function describe(value: unknown): string {

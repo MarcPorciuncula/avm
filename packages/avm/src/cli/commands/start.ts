@@ -12,6 +12,7 @@ import {
   shortIdOf,
   sshToVm,
 } from "../../lib/vm.ts";
+import { maybePromptForInstall } from "./notify.ts";
 
 export const startCommand = defineCommand({
   meta: {
@@ -68,6 +69,8 @@ export const startCommand = defineCommand({
     }
 
     ensureHostScaffolding();
+
+    await maybePromptForInstall();
 
     let config;
     try {

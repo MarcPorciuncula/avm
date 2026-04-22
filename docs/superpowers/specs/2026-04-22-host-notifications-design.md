@@ -49,20 +49,20 @@ auth. The natural design is to extend that channel.
 ## Architecture
 
 ```
-                                    host
-┌────────────────── container ──────────────────┐    ┌──────────────────────────┐
-│                                               │    │                          │
-│  Claude Code                                  │    │  avm-daemon              │
-│    │                                          │    │    NotificationService   │
-│    │ Notification / Stop hook fires           │    │      ├─ auth (token →    │
-│    ▼                                          │    │      │   container)     │
-│  /usr/local/bin/avm-bridge notify <kind>      │    │      ├─ master switch   │
-│    │                                          │    │      ├─ resolve sound  │
-│    │ reads stdin JSON (cwd, session_id)      │    │      ├─ build msg      │
-│    │ Connect RPC: Notify(kind, cwd?, ...)    │ ──▶│      ├─ afplay        │
-│    │                                         │    │      └─ osascript      │
-│    │ swallows transport errors, exits 0     │    │                          │
-└───────────────────────────────────────────────┘    └──────────────────────────┘
+                                          host
+┌────────────────── container ────────────────────────┐    ┌──────────────────────────┐
+│                                                     │    │                          │
+│  Claude Code                                        │    │  avm-daemon              │
+│    │                                                │    │    NotificationService   │
+│    │ Notification / Stop hook fires                 │    │      ├─ auth (token →    │
+│    ▼                                                │    │      │   container)     │
+│  /usr/local/bin/avm-bridge claude-hook <event>      │    │      ├─ master switch   │
+│    │                                                │    │      ├─ resolve sound  │
+│    │ reads stdin JSON (cwd, session_id)            │    │      ├─ build msg      │
+│    │ maps event name → NotificationKind            │    │      ├─ afplay        │
+│    │ Connect RPC: Notify(kind, cwd?, ...)          │ ──▶│      └─ osascript      │
+│    │ swallows transport errors, exits 0            │    │                          │
+└─────────────────────────────────────────────────────┘    └──────────────────────────┘
 ```
 
 The hook is a one-liner. Bridge does the JSON parsing of the Claude hook
@@ -101,18 +101,37 @@ Generated bundle ships alongside existing bridge protos. No new transport, no
 new auth. Adding a new kind later = add an enum value + daemon mapping +
 bridge subarg; old hooks keep working.
 
-### avm-bridge command (`packages/avm-bridge/src/cli/commands/notify.ts`)
+### avm-bridge command (`packages/avm-bridge/src/cli/commands/claude-hook.ts`)
 
-Subcommand: `avm-bridge notify <kind>`, where `<kind>` ∈ `needs-attention`,
-`complete`. Behaviour:
+Subcommand: `avm-bridge claude-hook <event-name>`, where `<event-name>` is
+the literal lowercased Claude Code hook event name. v1 supports
+`notification` and `stop`; the surface is open to more events later
+(`subagent-stop`, `user-prompt-submit`, etc.) without changing the daemon
+proto.
+
+Behaviour:
 
 1. Attempt to read stdin and parse it as JSON (Claude hook payload). Extract
    `cwd` and `session_id` if present. Failure to read or parse is silent —
    call proceeds without those fields.
-2. Issue Connect RPC `NotificationService.Notify(...)` against the daemon
+2. Map `<event-name>` to a `NotificationKind`:
+   - `notification` → `NEEDS_ATTENTION`
+   - `stop` → `COMPLETE`
+   - unknown → log to stderr and exit 0 (silent no-op).
+3. Issue Connect RPC `NotificationService.Notify(...)` against the daemon
    using the existing per-container Bearer token.
-3. **Always exit 0** — wrap the RPC in a try/catch that logs to stderr and
+4. **Always exit 0** — wrap the RPC in a try/catch that logs to stderr and
    swallows the error. Hook failures must not surface to Claude or the user.
+
+**Why `claude-hook`, not `notify`.** The `claude-hook` namespace is honest
+about the surface: it's an adapter for Claude Code hook events, with
+Claude-specific concerns (stdin payload schema, event-name vocabulary). The
+`notify` namespace is reserved for a future generic notification API
+(`avm-bridge notify --kind needs-attention --title ... --body ...`) that
+non-Claude in-container tools (build scripts, watchers) could call directly.
+Keeping the two namespaces separate means the user-managed `settings.json`
+stays a thin event pass-through, and the daemon proto remains a generic
+notification surface that doesn't know anything about Claude.
 
 ### avm-daemon handler (`packages/avm-daemon/src/services/notifications.ts`)
 
@@ -150,17 +169,18 @@ Citty `defineCommand` mirroring the existing command shapes:
 
 - `avm notify install` — idempotent. Calls into `lib/notify-hooks.ts` to
   load `~/.avm/system/claude/settings.json` (creates `{}` if absent), strip
-  any existing entries whose `command` starts with `avm-bridge notify `,
+  any existing entries whose `command` starts with `avm-bridge claude-hook `,
   then append fresh entries (see below). Sets
-  `notifications.install: true` and `notifications.prompted: true` in
-  `config.yaml`.
-- `avm notify uninstall` — same load/strip, no re-add. Sets
-  `notifications.install: false`. Leaves `prompted: true`.
+  `notifications.installPrompt: "installed"` in `~/.avm/state.json`.
+- `avm notify uninstall` — same load/strip, no re-add. Clears
+  `notifications.installPrompt` (sets it to `undefined`) so a future prompt
+  works again, mirroring `ssh-config uninstall`.
 - `avm notify status` — prints: hooks installed (yes/no, count of matching
-  entries), daemon `notifications.enabled`, current sound mapping, prompted
-  state.
+  entries), daemon `notifications.enabled` (from `config.yaml`), current
+  sound mapping, install-prompt state (from `state.json`).
 - `avm notify mute` / `avm notify unmute` — convenience for setting
-  `notifications.enabled` to `false`/`true`. Doesn't touch `settings.json`.
+  `notifications.enabled` in `config.yaml` to `false`/`true`. Doesn't touch
+  `settings.json` or `state.json`.
 
 ### Hook entries written
 
@@ -173,13 +193,13 @@ in place of `PermissionRequest` so we cover elicitations and idles too):
     "Notification": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "avm-bridge notify needs-attention" }]
+        "hooks": [{ "type": "command", "command": "avm-bridge claude-hook notification" }]
       }
     ],
     "Stop": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "avm-bridge notify complete" }]
+        "hooks": [{ "type": "command", "command": "avm-bridge claude-hook stop" }]
       }
     ]
   }
@@ -205,7 +225,7 @@ Both return a new object (don't mutate input). Both:
   keys, all other hook events, and all unrelated entries inside those arrays
   are preserved verbatim.
 - Within those arrays, identify "AVM entries" as entries where every
-  `hooks[].command` starts with the literal prefix `avm-bridge notify `.
+  `hooks[].command` starts with the literal prefix `avm-bridge claude-hook `.
   Strip those before any append.
 - After install, both arrays end with the canonical AVM entry above.
 
@@ -215,14 +235,12 @@ abort with a clear error and remediation hint — never overwrite.
 
 ### Configuration (`~/.avm/config.yaml`)
 
-New top-level `notifications` block. All fields optional; daemon and CLI fill
-defaults at read time:
+New top-level `notifications` block — *user-edited* settings only. All
+fields optional; daemon and CLI fill defaults at read time:
 
 ```yaml
 notifications:
   enabled: true                # daemon master switch (default true)
-  prompted: false              # set true once user has been asked
-  install: true                # informational: did host CLI install hooks?
   sounds:
     needs-attention:
       file: /System/Library/Sounds/Ping.aiff
@@ -235,13 +253,34 @@ notifications:
 Daemon re-reads on every `Notify` call (small file, cheap). No SIGHUP
 needed; toggling `enabled` or editing sounds takes effect immediately.
 
+### State (`~/.avm/state.json`)
+
+avm-managed state for the notifications feature. Mirrors the existing
+`sshConfig.installPrompt` shape:
+
+```json
+{
+  "notifications": {
+    "installPrompt": "installed"
+  }
+}
+```
+
+`installPrompt` ∈ `"installed" | "declined" | undefined`. Used by the
+first-run prompt to decide whether to ask the user. `avm notify install`
+sets it to `"installed"`; `avm notify uninstall` clears it to `undefined`
+so a future prompt works again. The first-run prompt only fires when
+`installPrompt` is `undefined`.
+
+User-edited settings live in `config.yaml`; avm-managed state lives in
+`state.json`. Mirroring the existing convention keeps the two files'
+responsibilities clean.
+
 ### First-run prompt
 
-Fires from:
-
-- **`avm provision`** — always runs after image build, *unless*
-  `notifications.prompted === true`.
-- **`avm start`** — fallback, runs only if `notifications.prompted` is unset.
+Fires from both `avm provision` and `avm start`, but only when
+`state.json` `notifications.installPrompt` is `undefined`. Both commands
+skip the prompt forever once the user has answered.
 
 Single `@clack/prompts` confirm:
 
@@ -252,32 +291,36 @@ Single `@clack/prompts` confirm:
    › Yes / No
 ```
 
-- Yes → run install logic (as `avm notify install`).
-- No → set `prompted: true, install: false`, no further changes.
+- Yes → run install logic (as `avm notify install`). Sets
+  `notifications.installPrompt: "installed"`.
+- No → sets `notifications.installPrompt: "declined"`. No changes to
+  `settings.json`.
 
-To re-prompt after answering No, the user runs the explicit command or
-clears `notifications.prompted` in `config.yaml`.
+To re-prompt after answering No, the user runs `avm notify install` (which
+sets `installPrompt: "installed"`) or `avm notify uninstall` (which clears
+`installPrompt`, so the next `provision`/`start` will re-ask).
 
 ## Data flow
 
 For a single Stop event in container `myproj`, in-container Claude cwd
 `/home/agent/work/alcova-backend/feature-x`:
 
-1. Claude Code fires the `Stop` hook, executes `avm-bridge notify complete`
-   with hook payload JSON on stdin.
+1. Claude Code fires the `Stop` hook, executes
+   `avm-bridge claude-hook stop` with hook payload JSON on stdin.
 2. Bridge reads stdin, parses JSON, extracts
    `cwd = "/home/agent/work/alcova-backend/feature-x"`.
-3. Bridge issues `NotificationService.Notify(kind=COMPLETE, cwd=...)` over
+3. Bridge maps `stop` → `NotificationKind.COMPLETE`.
+4. Bridge issues `NotificationService.Notify(kind=COMPLETE, cwd=...)` over
    Connect RPC with the container's Bearer token.
-4. Daemon authenticates → container `myproj`.
-5. Daemon reads `notifications.enabled === true` from `config.yaml`.
-6. Daemon resolves `notifications.sounds.complete` → defaults
+5. Daemon authenticates → container `myproj`.
+6. Daemon reads `notifications.enabled === true` from `config.yaml`.
+7. Daemon resolves `notifications.sounds.complete` → defaults
    (`Submarine.aiff @ 1.0`).
-7. Daemon builds:
+8. Daemon builds:
    - Title: `AVM — myproj`
    - Body: `Claude completed its work\nalcova-backend/feature-x`
-8. Daemon dispatches `afplay` and `osascript` in parallel, returns `OK`.
-9. Bridge exits 0; Claude continues unaffected.
+9. Daemon dispatches `afplay` and `osascript` in parallel, returns `OK`.
+10. Bridge exits 0; Claude continues unaffected.
 
 ## Edge cases
 
@@ -291,7 +334,7 @@ For a single Stop event in container `myproj`, in-container Claude cwd
 | Outdated bridge binary sends unknown kind | Daemon returns `INVALID_ARGUMENT`; bridge swallows; silent. |
 | Hook stdin not piped / not JSON | Bridge proceeds without `cwd`; daemon omits the location line. |
 | Two simultaneous notifications | Both dispatch. macOS Notification Center coalesces visually; afplay overlap is fine. |
-| User answered No to first-run prompt | Both `provision` and `start` skip the prompt forever (until `prompted` flag cleared). |
+| User answered No to first-run prompt | Both `provision` and `start` skip the prompt forever (until `installPrompt` cleared via `avm notify uninstall`). |
 
 ## Out-of-scope (deferred)
 

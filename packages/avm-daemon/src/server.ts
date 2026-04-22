@@ -30,9 +30,14 @@ import {
   RegisterContainerResponseSchema,
   UnregisterContainerResponseSchema,
 } from "@avm/shared/gen/avm/host/v1/containers_pb";
+import {
+  NotificationService,
+  NotifyResponseSchema,
+} from "@avm/shared/gen/avm/bridge/v1/notification_pb";
 
 import { openFile } from "./editor.js";
 import { openUrl } from "./browser.js";
+import { dispatchNotification, notificationsEnabled } from "./notifications.js";
 import type { ServiceRegistry, ServiceConfig, ServiceStatus } from "./registry.js";
 import type { StateStore } from "./state.js";
 
@@ -166,6 +171,29 @@ export function createRoutes(
       async openUrl(req) {
         const result = openUrl({ url: req.url });
         return create(OpenUrlResponseSchema, { url: result.url });
+      },
+    });
+
+    // Bridge notification API (called by containers from Claude hooks)
+    router.service(NotificationService, {
+      async notify(req, context) {
+        const containerName = context.requestHeader.get("x-avm-container-name");
+        if (!containerName) {
+          throw new ConnectError("Container identity not resolved", Code.Internal);
+        }
+        // Master switch: silent no-op so Claude never sees an error.
+        if (!notificationsEnabled()) {
+          return create(NotifyResponseSchema, {});
+        }
+        if (process.platform !== "darwin") {
+          return create(NotifyResponseSchema, {});
+        }
+        dispatchNotification(containerName, {
+          kind: req.kind,
+          cwd: req.cwd ?? "",
+          sessionId: req.sessionId ?? "",
+        });
+        return create(NotifyResponseSchema, {});
       },
     });
 

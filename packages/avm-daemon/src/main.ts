@@ -123,6 +123,12 @@ function main() {
 
     // 8. Write PID file.
     writeFileSync(PID_PATH, String(process.pid) + "\n", { mode: 0o600 });
+
+    if (process.platform !== "darwin") {
+      console.log(
+        `avm-daemon: notifications disabled — platform is ${process.platform}, only darwin is supported.`,
+      );
+    }
   });
 
   // 9. Handle graceful shutdown.
