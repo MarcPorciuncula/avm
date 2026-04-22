@@ -49,20 +49,20 @@ auth. The natural design is to extend that channel.
 ## Architecture
 
 ```
-                                    host
-┌────────────────── container ──────────────────┐    ┌──────────────────────────┐
-│                                               │    │                          │
-│  Claude Code                                  │    │  avm-daemon              │
-│    │                                          │    │    NotificationService   │
-│    │ Notification / Stop hook fires           │    │      ├─ auth (token →    │
-│    ▼                                          │    │      │   container)     │
-│  /usr/local/bin/avm-bridge notify <kind>      │    │      ├─ master switch   │
-│    │                                          │    │      ├─ resolve sound  │
-│    │ reads stdin JSON (cwd, session_id)      │    │      ├─ build msg      │
-│    │ Connect RPC: Notify(kind, cwd?, ...)    │ ──▶│      ├─ afplay        │
-│    │                                         │    │      └─ osascript      │
-│    │ swallows transport errors, exits 0     │    │                          │
-└───────────────────────────────────────────────┘    └──────────────────────────┘
+                                          host
+┌────────────────── container ────────────────────────┐    ┌──────────────────────────┐
+│                                                     │    │                          │
+│  Claude Code                                        │    │  avm-daemon              │
+│    │                                                │    │    NotificationService   │
+│    │ Notification / Stop hook fires                 │    │      ├─ auth (token →    │
+│    ▼                                                │    │      │   container)     │
+│  /usr/local/bin/avm-bridge claude-hook <event>      │    │      ├─ master switch   │
+│    │                                                │    │      ├─ resolve sound  │
+│    │ reads stdin JSON (cwd, session_id)            │    │      ├─ build msg      │
+│    │ maps event name → NotificationKind            │    │      ├─ afplay        │
+│    │ Connect RPC: Notify(kind, cwd?, ...)          │ ──▶│      └─ osascript      │
+│    │ swallows transport errors, exits 0            │    │                          │
+└─────────────────────────────────────────────────────┘    └──────────────────────────┘
 ```
 
 The hook is a one-liner. Bridge does the JSON parsing of the Claude hook
@@ -101,18 +101,37 @@ Generated bundle ships alongside existing bridge protos. No new transport, no
 new auth. Adding a new kind later = add an enum value + daemon mapping +
 bridge subarg; old hooks keep working.
 
-### avm-bridge command (`packages/avm-bridge/src/cli/commands/notify.ts`)
+### avm-bridge command (`packages/avm-bridge/src/cli/commands/claude-hook.ts`)
 
-Subcommand: `avm-bridge notify <kind>`, where `<kind>` ∈ `needs-attention`,
-`complete`. Behaviour:
+Subcommand: `avm-bridge claude-hook <event-name>`, where `<event-name>` is
+the literal lowercased Claude Code hook event name. v1 supports
+`notification` and `stop`; the surface is open to more events later
+(`subagent-stop`, `user-prompt-submit`, etc.) without changing the daemon
+proto.
+
+Behaviour:
 
 1. Attempt to read stdin and parse it as JSON (Claude hook payload). Extract
    `cwd` and `session_id` if present. Failure to read or parse is silent —
    call proceeds without those fields.
-2. Issue Connect RPC `NotificationService.Notify(...)` against the daemon
+2. Map `<event-name>` to a `NotificationKind`:
+   - `notification` → `NEEDS_ATTENTION`
+   - `stop` → `COMPLETE`
+   - unknown → log to stderr and exit 0 (silent no-op).
+3. Issue Connect RPC `NotificationService.Notify(...)` against the daemon
    using the existing per-container Bearer token.
-3. **Always exit 0** — wrap the RPC in a try/catch that logs to stderr and
+4. **Always exit 0** — wrap the RPC in a try/catch that logs to stderr and
    swallows the error. Hook failures must not surface to Claude or the user.
+
+**Why `claude-hook`, not `notify`.** The `claude-hook` namespace is honest
+about the surface: it's an adapter for Claude Code hook events, with
+Claude-specific concerns (stdin payload schema, event-name vocabulary). The
+`notify` namespace is reserved for a future generic notification API
+(`avm-bridge notify --kind needs-attention --title ... --body ...`) that
+non-Claude in-container tools (build scripts, watchers) could call directly.
+Keeping the two namespaces separate means the user-managed `settings.json`
+stays a thin event pass-through, and the daemon proto remains a generic
+notification surface that doesn't know anything about Claude.
 
 ### avm-daemon handler (`packages/avm-daemon/src/services/notifications.ts`)
 
@@ -150,7 +169,7 @@ Citty `defineCommand` mirroring the existing command shapes:
 
 - `avm notify install` — idempotent. Calls into `lib/notify-hooks.ts` to
   load `~/.avm/system/claude/settings.json` (creates `{}` if absent), strip
-  any existing entries whose `command` starts with `avm-bridge notify `,
+  any existing entries whose `command` starts with `avm-bridge claude-hook `,
   then append fresh entries (see below). Sets
   `notifications.install: true` and `notifications.prompted: true` in
   `config.yaml`.
@@ -173,13 +192,13 @@ in place of `PermissionRequest` so we cover elicitations and idles too):
     "Notification": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "avm-bridge notify needs-attention" }]
+        "hooks": [{ "type": "command", "command": "avm-bridge claude-hook notification" }]
       }
     ],
     "Stop": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "avm-bridge notify complete" }]
+        "hooks": [{ "type": "command", "command": "avm-bridge claude-hook stop" }]
       }
     ]
   }
@@ -205,7 +224,7 @@ Both return a new object (don't mutate input). Both:
   keys, all other hook events, and all unrelated entries inside those arrays
   are preserved verbatim.
 - Within those arrays, identify "AVM entries" as entries where every
-  `hooks[].command` starts with the literal prefix `avm-bridge notify `.
+  `hooks[].command` starts with the literal prefix `avm-bridge claude-hook `.
   Strip those before any append.
 - After install, both arrays end with the canonical AVM entry above.
 
@@ -263,21 +282,22 @@ clears `notifications.prompted` in `config.yaml`.
 For a single Stop event in container `myproj`, in-container Claude cwd
 `/home/agent/work/alcova-backend/feature-x`:
 
-1. Claude Code fires the `Stop` hook, executes `avm-bridge notify complete`
-   with hook payload JSON on stdin.
+1. Claude Code fires the `Stop` hook, executes
+   `avm-bridge claude-hook stop` with hook payload JSON on stdin.
 2. Bridge reads stdin, parses JSON, extracts
    `cwd = "/home/agent/work/alcova-backend/feature-x"`.
-3. Bridge issues `NotificationService.Notify(kind=COMPLETE, cwd=...)` over
+3. Bridge maps `stop` → `NotificationKind.COMPLETE`.
+4. Bridge issues `NotificationService.Notify(kind=COMPLETE, cwd=...)` over
    Connect RPC with the container's Bearer token.
-4. Daemon authenticates → container `myproj`.
-5. Daemon reads `notifications.enabled === true` from `config.yaml`.
-6. Daemon resolves `notifications.sounds.complete` → defaults
+5. Daemon authenticates → container `myproj`.
+6. Daemon reads `notifications.enabled === true` from `config.yaml`.
+7. Daemon resolves `notifications.sounds.complete` → defaults
    (`Submarine.aiff @ 1.0`).
-7. Daemon builds:
+8. Daemon builds:
    - Title: `AVM — myproj`
    - Body: `Claude completed its work\nalcova-backend/feature-x`
-8. Daemon dispatches `afplay` and `osascript` in parallel, returns `OK`.
-9. Bridge exits 0; Claude continues unaffected.
+9. Daemon dispatches `afplay` and `osascript` in parallel, returns `OK`.
+10. Bridge exits 0; Claude continues unaffected.
 
 ## Edge cases
 
