@@ -193,8 +193,8 @@ function validate(data: unknown): AvmConfig {
   const obj = data as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!TOP_LEVEL_KEYS.has(key)) {
-      throw new Error(
-        `${avmConfigFile}: unknown top-level key "${key}". Allowed: ${[...TOP_LEVEL_KEYS].join(", ")}.`,
+      console.warn(
+        `${avmConfigFile}: unknown top-level key "${key}" (ignored). Allowed: ${[...TOP_LEVEL_KEYS].join(", ")}.`,
       );
     }
   }
@@ -258,8 +258,8 @@ function parseRepos(raw: unknown): Record<string, RepoConfig> {
     const repoObj = value as Record<string, unknown>;
     for (const key of Object.keys(repoObj)) {
       if (!REPO_KEYS.has(key)) {
-        throw new Error(
-          `${avmConfigFile}: unknown key "${key}" under repos.${name}. Allowed: ${[...REPO_KEYS].join(", ")}.`,
+        console.warn(
+          `${avmConfigFile}: unknown key "${key}" under repos.${name} (ignored). Allowed: ${[...REPO_KEYS].join(", ")}.`,
         );
       }
     }
@@ -347,8 +347,8 @@ function parseDaemon(raw: unknown): DaemonConfig {
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!DAEMON_KEYS.has(key)) {
-      throw new Error(
-        `${avmConfigFile}: unknown key "${key}" under daemon. Allowed: ${[...DAEMON_KEYS].join(", ")}.`,
+      console.warn(
+        `${avmConfigFile}: unknown key "${key}" under daemon (ignored). Allowed: ${[...DAEMON_KEYS].join(", ")}.`,
       );
     }
   }
@@ -379,8 +379,8 @@ function parsePruneImages(raw: unknown): PruneImagesConfig {
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!PRUNE_IMAGES_KEYS.has(key)) {
-      throw new Error(
-        `${avmConfigFile}: unknown key "${key}" under prune_images. Allowed: ${[...PRUNE_IMAGES_KEYS].join(", ")}.`,
+      console.warn(
+        `${avmConfigFile}: unknown key "${key}" under prune_images (ignored). Allowed: ${[...PRUNE_IMAGES_KEYS].join(", ")}.`,
       );
     }
   }
@@ -434,8 +434,8 @@ function parseServices(
     const svcObj = value as Record<string, unknown>;
     for (const key of Object.keys(svcObj)) {
       if (!SERVICE_KEYS.has(key)) {
-        throw new Error(
-          `${avmConfigFile}: unknown key "${key}" under services.${name}. Allowed: ${[...SERVICE_KEYS].join(", ")}.`,
+        console.warn(
+          `${avmConfigFile}: unknown key "${key}" under services.${name} (ignored). Allowed: ${[...SERVICE_KEYS].join(", ")}.`,
         );
       }
     }
@@ -507,8 +507,8 @@ function parseServices(
     const checkObj = svcObj.check as Record<string, unknown>;
     for (const key of Object.keys(checkObj)) {
       if (!CHECK_KEYS.has(key)) {
-        throw new Error(
-          `${avmConfigFile}: unknown key "${key}" under services.${name}.check. Allowed: ${[...CHECK_KEYS].join(", ")}.`,
+        console.warn(
+          `${avmConfigFile}: unknown key "${key}" under services.${name}.check (ignored). Allowed: ${[...CHECK_KEYS].join(", ")}.`,
         );
       }
     }
@@ -538,8 +538,8 @@ function parseNotifications(raw: unknown): NotificationsConfig {
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!NOTIFICATIONS_KEYS.has(key)) {
-      throw new Error(
-        `${avmConfigFile}: unknown key "${key}" under notifications. Allowed: ${[...NOTIFICATIONS_KEYS].join(", ")}.`,
+      console.warn(
+        `${avmConfigFile}: unknown key "${key}" under notifications (ignored). Allowed: ${[...NOTIFICATIONS_KEYS].join(", ")}.`,
       );
     }
   }
@@ -564,8 +564,8 @@ function parseNotifications(raw: unknown): NotificationsConfig {
     const sounds = obj.sounds as Record<string, unknown>;
     for (const key of Object.keys(sounds)) {
       if (!SOUND_NAMES.has(key)) {
-        throw new Error(
-          `${avmConfigFile}: unknown key "${key}" under notifications.sounds. Allowed: ${[...SOUND_NAMES].join(", ")}.`,
+        console.warn(
+          `${avmConfigFile}: unknown key "${key}" under notifications.sounds (ignored). Allowed: ${[...SOUND_NAMES].join(", ")}.`,
         );
       }
     }
@@ -580,8 +580,8 @@ function parseNotifications(raw: unknown): NotificationsConfig {
       const e = entry as Record<string, unknown>;
       for (const key of Object.keys(e)) {
         if (!SOUND_KEYS.has(key)) {
-          throw new Error(
-            `${avmConfigFile}: unknown key "${key}" under notifications.sounds.${name}. Allowed: ${[...SOUND_KEYS].join(", ")}.`,
+          console.warn(
+            `${avmConfigFile}: unknown key "${key}" under notifications.sounds.${name} (ignored). Allowed: ${[...SOUND_KEYS].join(", ")}.`,
           );
         }
       }
