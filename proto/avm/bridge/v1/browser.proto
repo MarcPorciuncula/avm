@@ -1,0 +1,14 @@
+syntax = "proto3";
+package avm.bridge.v1;
+
+service BrowserService {
+  rpc OpenUrl(OpenUrlRequest) returns (OpenUrlResponse);
+}
+
+message OpenUrlRequest {
+  string url = 1;
+}
+
+message OpenUrlResponse {
+  string url = 1;
+}
