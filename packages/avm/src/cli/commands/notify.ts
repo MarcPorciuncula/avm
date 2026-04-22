@@ -103,25 +103,24 @@ function printStatus(): void {
     parseError = (err as Error).message;
   }
   const installed = countAvmEntries(settings);
-
-  let config;
-  try {
-    config = loadAvmConfig();
-  } catch (err) {
-    console.log(`Could not load ~/.avm/config.yaml: ${(err as Error).message}`);
-    return;
-  }
-
   const state = readState();
   const promptState = state.notifications?.installPrompt ?? "(not asked)";
 
+  // Config-independent diagnostics first — print regardless of config validity.
   console.log(`Hook install:    ${installed > 0 ? `installed (${installed} entr${installed === 1 ? "y" : "ies"})` : "not installed"}`);
   if (parseError) console.log(`                 ${parseError}`);
   console.log(`Settings file:   ${SETTINGS_PATH}`);
-  console.log(`Master switch:   notifications.enabled = ${config.notifications.enabled}`);
-  console.log(`Sound — needs-attention: ${config.notifications.sounds["needs-attention"].file} @ ${config.notifications.sounds["needs-attention"].volume}`);
-  console.log(`Sound — complete:        ${config.notifications.sounds.complete.file} @ ${config.notifications.sounds.complete.volume}`);
   console.log(`Install prompt:  ${promptState}`);
+
+  // Config-dependent: master switch + sounds.
+  try {
+    const config = loadAvmConfig();
+    console.log(`Master switch:   notifications.enabled = ${config.notifications.enabled}`);
+    console.log(`Sound — needs-attention: ${config.notifications.sounds["needs-attention"].file} @ ${config.notifications.sounds["needs-attention"].volume}`);
+    console.log(`Sound — complete:        ${config.notifications.sounds.complete.file} @ ${config.notifications.sounds.complete.volume}`);
+  } catch (err) {
+    console.log(`Master switch:   (could not load ~/.avm/config.yaml: ${(err as Error).message})`);
+  }
 }
 
 const statusSub = defineCommand({
