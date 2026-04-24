@@ -5,7 +5,6 @@ import {
   openSync,
   readFileSync,
   writeFileSync,
-  unlinkSync,
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -27,7 +26,7 @@ import {
   avmSystemSshDir,
   avmVolumesDir,
 } from "./config.ts";
-import { type AvmConfig, loadAvmConfig, generateAvmLinkScript } from "./config-file.ts";
+import { type AvmConfig, loadAvmConfig } from "./config-file.ts";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
 const daemonBin = join(distDir, "avm-daemon.mjs");
@@ -136,15 +135,12 @@ export function ensureHostScaffolding(): void {
 }
 
 /**
- * Post-creation setup that copies files into a container via `docker cp`
- * and `docker exec`. Called after `docker run` or `docker start`.
- *
- * 1. Symlinks image-shipped skills into ~/.claude/skills/.
- * 2. Generates and installs the avm-link script.
+ * Post-creation setup run after `docker run` or `docker start`.
+ * Persists AVM_* env vars for SSH, symlinks image-shipped skills into
+ * ~/.claude/skills/, and ensures avm-bridge is executable.
  */
 export async function applyPostCreationSetup(
   containerName: string,
-  config: AvmConfig,
 ): Promise<void> {
   // --- Persist AVM_* env vars for SSH sessions ---
   // Docker container env vars (set via `docker run -e`) are only inherited by
@@ -165,17 +161,6 @@ export async function applyPostCreationSetup(
     'ln -sfn "$d" /home/agent/.claude/skills/$(basename "$d"); ' +
     "done"
   }`;
-
-  // --- Generate and install avm-link ---
-  const script = generateAvmLinkScript(config);
-  const tempFile = "avm-link-tmp.sh";
-  writeFileSync(tempFile, script);
-  try {
-    await $`docker cp ${tempFile} ${containerName}:/usr/local/bin/avm-link`;
-    await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-link`;
-  } finally {
-    unlinkSync(tempFile);
-  }
 
   // --- Make avm-bridge executable ---
   await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-bridge`;

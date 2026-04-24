@@ -106,7 +106,7 @@ export const createCommand = defineCommand({
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 
-    await applyPostCreationSetup(vmName, config);
+    await applyPostCreationSetup(vmName);
 
     console.log(`==> Starting sshd in ${vmName}...`);
     await ensureSshd(vmName, sshPort);
