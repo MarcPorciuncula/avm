@@ -52,6 +52,47 @@ function loadConfig(): Record<string, ServiceConfig> {
   }
 }
 
+export type SymlinkSpec = { source: string; target: string };
+export type RepoSpec = { symlinks: SymlinkSpec[] };
+
+/** Lightweight parse of ~/.avm/config.yaml to extract per-repo symlink config. */
+function loadRepos(): Record<string, RepoSpec> {
+  try {
+    const raw = readFileSync(CONFIG_PATH, "utf-8");
+    const doc = parseDocument(raw);
+    const parsed = doc.toJS() as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== "object") return {};
+
+    const repos = parsed.repos as Record<string, unknown> | undefined;
+    if (!repos || typeof repos !== "object") return {};
+
+    const result: Record<string, RepoSpec> = {};
+    for (const [name, value] of Object.entries(repos)) {
+      if (!value || typeof value !== "object") continue;
+      const repo = value as Record<string, unknown>;
+      const rawSymlinks = repo.symlinks;
+      if (!Array.isArray(rawSymlinks)) {
+        result[name] = { symlinks: [] };
+        continue;
+      }
+      const symlinks: SymlinkSpec[] = [];
+      for (const entry of rawSymlinks) {
+        if (typeof entry !== "string") continue;
+        const idx = entry.indexOf(":");
+        if (idx <= 0 || idx === entry.length - 1) continue;
+        symlinks.push({
+          source: entry.slice(0, idx),
+          target: entry.slice(idx + 1),
+        });
+      }
+      result[name] = { symlinks };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 /** Read daemon.port from config.yaml, defaulting to 6970. */
 function loadPort(): number {
   try {
@@ -88,7 +129,7 @@ function main() {
   const port = loadPort();
 
   // 6. Create the Connect handler with auth middleware.
-  const connectHandler = connectNodeAdapter({ routes: createRoutes(registry, stateStore, loadConfig) });
+  const connectHandler = connectNodeAdapter({ routes: createRoutes(registry, stateStore, loadConfig, loadRepos) });
 
   const handler: typeof connectHandler = (req, res) => {
     const url = req.url ?? "";
