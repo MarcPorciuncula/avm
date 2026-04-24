@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { spawnSync } from "node:child_process";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import { listAvmVms, resolveVmArg } from "../../lib/vm.ts";
 
 export const execCommand = defineCommand({
@@ -45,6 +46,13 @@ export const execCommand = defineCommand({
 
     if (cmdArgs.length === 0) {
       console.error("Error: no command specified. Usage: avm exec <id> <cmd...>");
+      process.exit(1);
+    }
+
+    try {
+      await ensureDaemonRunning();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
       process.exit(1);
     }
 

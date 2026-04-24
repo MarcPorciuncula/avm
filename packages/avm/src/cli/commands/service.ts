@@ -1,28 +1,19 @@
 import { defineCommand } from "citty";
-import { readFileSync } from "node:fs";
-import { loadAvmConfig } from "../../lib/config-file.ts";
-import { avmDaemonHostSecretFile } from "../../lib/config.ts";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import {
   createHostServicesClient,
   Kind,
   State,
 } from "@avm/shared/host-client";
 
-function getClient() {
-  const config = loadAvmConfig();
-  const port = config.daemon.port;
-
-  let secret: string;
+async function getClient() {
   try {
-    secret = readFileSync(avmDaemonHostSecretFile, "utf-8").trim();
-  } catch {
-    console.error(
-      "Daemon has not been started. Run `avm daemon start` first.",
-    );
+    const { port, secret } = await ensureDaemonRunning();
+    return createHostServicesClient(port, secret);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
     process.exit(1);
   }
-
-  return createHostServicesClient(port, secret);
 }
 
 function kindLabel(k: Kind): string {
@@ -57,7 +48,7 @@ const lsCommand = defineCommand({
     description: "List all declared services.",
   },
   async run() {
-    const client = getClient();
+    const client = await getClient();
     const res = await client.listServices({});
 
     if (res.services.length === 0) {
@@ -100,7 +91,7 @@ const statusCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const client = getClient();
+    const client = await getClient();
     const svc = await client.getService({ name: args.name });
 
     console.log(`Name:   ${svc.name}`);
@@ -128,7 +119,7 @@ const startCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const client = getClient();
+    const client = await getClient();
     const svc = await client.startService({ name: args.name });
     console.log(`${svc.name}: ${stateLabel(svc.state)}`);
   },
@@ -147,7 +138,7 @@ const stopCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const client = getClient();
+    const client = await getClient();
     const svc = await client.stopService({ name: args.name });
     console.log(`${svc.name}: ${stateLabel(svc.state)}`);
   },

@@ -2,20 +2,15 @@ import { $, path } from "zx";
 import {
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createHostContainerClient } from "@avm/shared/host-client";
 import {
   AVM_HOME,
   REPO_ROOT,
-  avmDaemonDir,
-  avmDaemonHostSecretFile,
-  avmDaemonLogFile,
   avmFilesDir,
   avmMirrorsDir,
   avmSystemClaudeDir,
@@ -27,57 +22,10 @@ import {
   avmVolumesDir,
 } from "./config.ts";
 import { type AvmConfig, loadAvmConfig } from "./config-file.ts";
+import { ensureDaemonRunning } from "./daemon.ts";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
-const daemonBin = join(distDir, "avm-daemon.mjs");
 const bridgeBin = join(distDir, "avm-bridge.mjs");
-
-/**
- * Ensure the avm daemon is running and return its port and host secret.
- * If the daemon is not reachable, spawns it as a detached background process
- * and polls until it becomes reachable (up to 5 seconds).
- */
-export async function ensureDaemonRunning(): Promise<{ port: number; secret: string }> {
-  const config = loadAvmConfig();
-  const port = config.daemon.port;
-
-  const isReachable = async (): Promise<boolean> => {
-    try {
-      await fetch(`http://127.0.0.1:${port}/`);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  if (!(await isReachable())) {
-    // Ensure daemon directory exists for log file
-    mkdirSync(avmDaemonDir, { recursive: true });
-
-    const logFd = openSync(avmDaemonLogFile, "a");
-    const child = spawn("node", [daemonBin], {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-    });
-    child.unref();
-
-    // Poll for up to 5 seconds
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 200));
-      if (await isReachable()) break;
-    }
-
-    if (!(await isReachable())) {
-      throw new Error(
-        `Daemon failed to start within 5s. Check ${avmDaemonLogFile} for details.`,
-      );
-    }
-  }
-
-  const secret = readFileSync(avmDaemonHostSecretFile, "utf-8").trim();
-  return { port, secret };
-}
 
 /**
  * Register a container with the daemon and return its token.

@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { $ } from "zx";
 import { loadAvmConfig } from "../../lib/config-file.ts";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { applyPostCreationSetup, ensureHostScaffolding } from "../../lib/session.ts";
 import { readState } from "../../lib/state.ts";
@@ -79,6 +80,8 @@ export const startCommand = defineCommand({
       console.error(`Error: ${(err as Error).message}`);
       process.exit(1);
     }
+
+    await ensureDaemonRunning();
 
     console.log(`==> Starting ${vmName}...`);
     await $`docker start ${vmName}`;

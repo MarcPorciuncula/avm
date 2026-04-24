@@ -1,49 +1,13 @@
 import { defineCommand } from "citty";
-import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, unlinkSync, openSync, closeSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import {
-  avmDaemonDir,
-  avmDaemonPidFile,
-  avmDaemonLogFile,
-} from "../../lib/config.ts";
-
-const distDir = dirname(fileURLToPath(import.meta.url));
-const daemonBin = join(distDir, "avm-daemon.mjs");
-
-async function isDaemonReachable(port: number): Promise<boolean> {
-  try {
-    await fetch(`http://127.0.0.1:${port}/`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readPid(): number | null {
-  try {
-    const raw = readFileSync(avmDaemonPidFile, "utf-8").trim();
-    const pid = parseInt(raw, 10);
-    return Number.isFinite(pid) ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+  isDaemonReachable,
+  isProcessAlive,
+  readDaemonPid,
+  restartDaemon,
+  startDaemon,
+  stopDaemon,
+} from "../../lib/daemon.ts";
 
 const startCommand = defineCommand({
   meta: {
@@ -51,49 +15,13 @@ const startCommand = defineCommand({
     description: "Start the avm daemon in the background.",
   },
   async run() {
-    const config = loadAvmConfig();
-    const port = config.daemon.port;
-
-    if (await isDaemonReachable(port)) {
-      console.log("Daemon already running.");
-      return;
+    try {
+      const result = await startDaemon();
+      console.log(result === "started" ? "Daemon started." : "Daemon already running.");
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
     }
-
-    // Ensure daemon dir exists
-    mkdirSync(avmDaemonDir, { recursive: true });
-
-    const logFd = openSync(avmDaemonLogFile, "a");
-
-    const child = spawn(process.execPath, [daemonBin], {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      env: { ...process.env },
-    });
-
-    closeSync(logFd);
-
-    child.unref();
-
-    // Write PID file
-    if (child.pid) {
-      writeFileSync(avmDaemonPidFile, String(child.pid));
-    }
-
-    // Poll for reachability
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      await sleep(200);
-      if (await isDaemonReachable(port)) {
-        console.log("Daemon started.");
-        return;
-      }
-    }
-
-    console.error(
-      "Error: daemon did not become reachable within 5 seconds. Check logs at:",
-      avmDaemonLogFile,
-    );
-    process.exit(1);
   },
 });
 
@@ -103,26 +31,29 @@ const stopCommand = defineCommand({
     description: "Stop the avm daemon.",
   },
   async run() {
-    const pid = readPid();
-    if (pid === null) {
-      console.log("Daemon is not running.");
-      return;
-    }
-
-    if (!isProcessAlive(pid)) {
-      console.log("Daemon is not running.");
-      try {
-        unlinkSync(avmDaemonPidFile);
-      } catch {}
-      return;
-    }
-
-    process.kill(pid, "SIGTERM");
-    console.log("Stopped.");
-
     try {
-      unlinkSync(avmDaemonPidFile);
-    } catch {}
+      const result = await stopDaemon();
+      console.log(result === "stopped" ? "Stopped." : "Daemon is not running.");
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const restartCommand = defineCommand({
+  meta: {
+    name: "restart",
+    description: "Restart the avm daemon.",
+  },
+  async run() {
+    try {
+      await restartDaemon();
+      console.log("Daemon restarted.");
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
   },
 });
 
@@ -136,7 +67,7 @@ const statusCommand = defineCommand({
     const port = config.daemon.port;
     const url = `http://127.0.0.1:${port}`;
 
-    const pid = readPid();
+    const pid = readDaemonPid();
     const alive = pid !== null && isProcessAlive(pid);
     const reachable = await isDaemonReachable(port);
 
@@ -154,6 +85,7 @@ export const daemonCommand = defineCommand({
   subCommands: {
     start: startCommand,
     stop: stopCommand,
+    restart: restartCommand,
     status: statusCommand,
   },
 });
