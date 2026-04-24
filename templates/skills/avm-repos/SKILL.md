@@ -1,58 +1,65 @@
 ---
 name: avm-repos
-description: Use when the agent needs to clone a repo, set up a workspace, or asks about mirrors or avm-link. Must be consulted before cloning any repo.
+description: Use when the agent needs to clone a repo or set up a workspace. Must be consulted before cloning any repo.
 ---
 
-# Cloning repos in avm
+# Setting up repos in avm
 
-Clone repos into `~/work/`.
+Use `avm-bridge clone <name>` to set up a repo in `~/work/`. The bridge
+resolves the host mirror at `~/mirrors/<name>.git` (if present), runs
+`git clone --reference`, and applies any per-repo symlinks declared in
+the user's avm config — all in one step.
 
-## Using mirrors
-
-If a mirror exists at `~/mirrors/<name>.git`, use it for faster clones.
-**Get the remote URL from the mirror** — do not guess it:
-
-```
-git -C ~/mirrors/<name>.git remote get-url origin
-```
-
-Then clone with `--reference`:
+## Usage
 
 ```
-git clone --reference ~/mirrors/<name>.git <url> ~/work/<name>
+avm-bridge clone <name>
 ```
 
-If there's no mirror, ask the user for the clone URL. **Never** pass
-`--dissociate` and **never** run `git gc` on mirrors.
+This clones into `~/work/<name>`. If `~/mirrors/<name>.git` exists, the
+clone is reference-based (fast). After cloning, per-repo symlinks (env
+files, config overrides, etc.) are applied automatically.
 
-## After cloning: `avm-link`
+If there is no mirror for `<name>`, ask the user for the clone URL and
+pass it explicitly:
 
-Run `avm-link` from inside the working copy to set up per-repo
-symlinks (env files, config overrides, etc.):
+```
+avm-bridge clone <name> --url <git-url>
+```
+
+To skip the post-clone link step:
+
+```
+avm-bridge clone <name> --no-link
+```
+
+## Re-applying links in an existing working copy
+
+If you already have a working copy and want to re-apply per-repo
+symlinks (e.g. after the user edited their config), run from inside it:
 
 ```
 cd ~/work/<name>
-avm-link
+avm-bridge link
 ```
 
-By default `avm-link` uses the directory name to look up the repo
-config. If the directory name doesn't match the repo name in the
-config (e.g. you cloned into a differently-named folder), pass the
-repo name explicitly:
+By default `link` uses the directory's basename as the repo name. Pass
+the name explicitly if they differ: `avm-bridge link <name>`. Safe to
+re-run; repos not declared in config are a no-op.
 
-```
-avm-link <repo-name>
-```
+## Manual clones (rare)
 
-Safe to re-run. Repos not in the config are a no-op.
+For non-default targets — a different directory, a specific branch,
+submodules, or a second remote — clone with `git` directly, then run
+`avm-bridge link <name>` from inside the working copy.
 
 ## Scope: clone and setup only
 
-After cloning and running `avm-link`, you may install workspace
-dependencies (e.g. `pnpm install`, `bundle install`) but **stop
-there**. Do not start services, dev servers, run database migrations,
-or take any action that affects runtime state or makes assumptions
-about external systems — unless the user explicitly asks.
+After cloning, you may install workspace dependencies (e.g.
+`pnpm install`, `bundle install`) but **stop there**. Do not start
+services, dev servers, run database migrations, or take any action
+that affects runtime state or makes assumptions about external
+systems — unless the user explicitly asks.
 
 "Set up the repo" means clone it, link it, and install dependencies —
 not run it.

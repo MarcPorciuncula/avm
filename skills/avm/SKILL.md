@@ -116,18 +116,18 @@ Or if the container is already running, use `avm attach <id>` instead.
 
 ### User wants a working copy of a specific repo inside the container
 
-Start the container, attach, then clone + link from inside:
+Start the container, attach, then have the in-container agent clone:
 
 ```
 avm create --attach
 # (inside the container)
-cd ~/work
-git clone --reference ~/mirrors/<repo>.git \
-  git@github.com:<owner>/<repo>.git \
-  <repo>
-cd <repo>
-avm-link            # applies any symlinks declared in ~/.avm/config.yaml
+avm-bridge clone <repo>
 ```
+
+`avm-bridge clone` resolves the host mirror at `~/mirrors/<repo>.git`,
+runs a reference-based `git clone` into `~/work/<repo>`, and applies
+per-repo symlinks declared in `~/.avm/config.yaml`. If there's no
+mirror, pass `--url <git-url>`.
 
 `avm` doesn't clone repos — cloning happens inside the container.
 
@@ -173,13 +173,13 @@ Once attached, the user (or Claude inside the container) sees:
 
 - `~/work/` — project repos (you clone them here; persists across stop/start)
 - `~/mirrors/` — bare git mirrors for fast clones (mounted from host)
-- `~/.avm-files/` — overlay files for `avm-link` to symlink from (read-only in practice)
+- `~/.avm-files/` — overlay files for `avm-bridge link` to symlink from (read-only in practice)
 - `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.config/git/config` — credentials and settings
 - `clauded` — alias for `claude --dangerously-skip-permissions`
-- `avm-link` — applies the per-repo symlinks from `~/.avm/config.yaml`
-- `avm-bridge` — CLI for coordinating with the host daemon (start/stop
-  host services, open files in the user's editor). See the avm-services
-  and avm-editor skills inside the container for usage.
+- `avm-bridge` — CLI for coordinating with the host daemon. Includes
+  `avm-bridge clone <name>` and `avm-bridge link` for repo setup, plus
+  service control and host editor/browser integration. See the
+  avm-repos, avm-services, and avm-editor skills inside the container.
 - Docker (DinD) — run `start-dockerd` inside the container, then `docker build`, `docker run`, etc. work normally
 
 The container only sees explicitly mounted paths. There is no access to

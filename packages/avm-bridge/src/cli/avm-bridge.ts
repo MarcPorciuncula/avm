@@ -3,6 +3,8 @@ import { browserCommand } from "./commands/browser.ts";
 import { editorCommand } from "./commands/editor.ts";
 import { serviceCommand } from "./commands/service.ts";
 import { claudeHookCommand } from "./commands/claude-hook.ts";
+import { linkCommand } from "./commands/link.ts";
+import { cloneCommand } from "./commands/clone.ts";
 
 const main = defineCommand({
   meta: {
@@ -14,6 +16,8 @@ const main = defineCommand({
     editor: editorCommand,
     service: serviceCommand,
     "claude-hook": claudeHookCommand,
+    link: linkCommand,
+    clone: cloneCommand,
   },
 });
 

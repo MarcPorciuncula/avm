@@ -1,0 +1,26 @@
+syntax = "proto3";
+package avm.bridge.v1;
+
+service ReposService {
+  // GetRepo returns the configured per-repo overlay for a repo name.
+  // Unknown repos return an empty Repo (not an error) — `link` is a
+  // no-op for repos not declared in config.yaml.
+  rpc GetRepo(GetRepoRequest) returns (Repo);
+}
+
+message GetRepoRequest {
+  string name = 1;
+}
+
+message Repo {
+  string name = 1;
+  repeated SymlinkMount symlinks = 2;
+}
+
+message SymlinkMount {
+  // Source path relative to ~/.avm-files/ (in container) /
+  // ~/.avm/files/ (on host).
+  string source = 1;
+  // Target path relative to the working directory `link` is invoked from.
+  string target = 2;
+}

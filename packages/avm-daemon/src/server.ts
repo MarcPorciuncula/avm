@@ -34,6 +34,11 @@ import {
   NotificationService,
   NotifyResponseSchema,
 } from "@avm/shared/gen/avm/bridge/v1/notification_pb";
+import {
+  ReposService,
+  RepoSchema,
+  SymlinkMountSchema,
+} from "@avm/shared/gen/avm/bridge/v1/repos_pb";
 
 import { openFile } from "./editor.js";
 import { openUrl } from "./browser.js";
@@ -83,6 +88,7 @@ export function createRoutes(
   registry: ServiceRegistry,
   stateStore: StateStore,
   loadConfig: () => Record<string, ServiceConfig>,
+  loadRepos: () => Record<string, { symlinks: { source: string; target: string }[] }>,
 ): (router: ConnectRouter) => void {
   return (router: ConnectRouter) => {
     // Bridge services API (called by containers)
@@ -253,6 +259,21 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+        });
+      },
+    });
+
+    // Bridge repos API (called by containers)
+    router.service(ReposService, {
+      async getRepo(req) {
+        const repos = loadRepos();
+        const repo = repos[req.name];
+        const symlinks = (repo?.symlinks ?? []).map((s) =>
+          create(SymlinkMountSchema, { source: s.source, target: s.target }),
+        );
+        return create(RepoSchema, {
+          name: req.name,
+          symlinks,
         });
       },
     });
