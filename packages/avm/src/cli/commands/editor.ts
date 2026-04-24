@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
@@ -65,6 +66,13 @@ export const editorCommand = defineCommand({
 
     const cli = await resolveEditorCli(config);
     if (!cli) process.exit(1);
+
+    try {
+      await ensureDaemonRunning();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
 
     openInEditor(cli, vmName);
   },

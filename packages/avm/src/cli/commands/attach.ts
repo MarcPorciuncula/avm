@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { select, isCancel, cancel } from "@clack/prompts";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import { attachToVm, listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 
 export const attachCommand = defineCommand({
@@ -43,6 +44,13 @@ export const attachCommand = defineCommand({
         process.exit(0);
       }
       vmName = picked as string;
+    }
+
+    try {
+      await ensureDaemonRunning();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
     }
 
     process.exit(attachToVm(vmName));

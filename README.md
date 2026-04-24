@@ -193,8 +193,9 @@ avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
 avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
 avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images
-avm daemon start          # Start the host daemon (background)
+avm daemon start          # Start the host daemon (background; auto-started as needed)
 avm daemon stop           # Stop the host daemon
+avm daemon restart        # Stop and start the host daemon
 avm daemon status         # Check if the daemon is running
 avm service list          # List declared services and their status
 avm service start <name>  # Start a host service
@@ -352,19 +353,17 @@ services:
       tcp: 127.0.0.1:9222
 ```
 
-2. **Start the daemon** on the host:
-
-```bash
-avm daemon start
-```
-
-3. **Use from inside a container** (the in-container agent runs these):
+2. **Use from inside a container** (the in-container agent runs these):
 
 ```bash
 avm-bridge service start chrome    # start Chrome on the host
 avm-bridge service status chrome   # check if it's running
 avm-bridge service stop chrome     # stop it
 ```
+
+The daemon starts automatically when any avm command needs it (e.g.
+`avm create`, `avm start`, `avm attach`, `avm service ls`). Use
+`avm daemon start` / `stop` / `restart` for explicit control.
 
 Services can be `kind: process` (a host process managed directly) or
 `kind: docker` (a Docker container started/stopped by the daemon). The

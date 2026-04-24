@@ -1,4 +1,5 @@
 import { defineCommand } from "citty";
+import { ensureDaemonRunning } from "../../lib/daemon.ts";
 import {
   ensureSshd,
   listAvmVms,
@@ -67,6 +68,13 @@ export const sshCommand = defineCommand({
       console.log(`  StrictHostKeyChecking no`);
       console.log(`  UserKnownHostsFile /dev/null`);
       return;
+    }
+
+    try {
+      await ensureDaemonRunning();
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
     }
 
     await ensureSshd(vm.name, vm.sshPort);

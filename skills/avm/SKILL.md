@@ -70,8 +70,9 @@ avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
 avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
 avm ssh-config uninstall  # Remove the Include line
 avm provision             # Build or rebuild the Docker images (core + user)
-avm daemon start          # Start the avm daemon (auto-started by avm create if needed)
+avm daemon start          # Start the avm daemon (auto-started as needed by other commands)
 avm daemon stop           # Stop the avm daemon
+avm daemon restart        # Stop and start the avm daemon
 avm daemon status         # Show daemon URL, PID, and reachability
 avm service ls            # List declared host services and their state
 avm service start <name>  # Start a host service
@@ -266,12 +267,15 @@ Both require a `check` with `tcp: host:port` for health checking.
 
 ### Daemon lifecycle
 
-The daemon is auto-started by `avm create` if not already running.
+The daemon auto-starts whenever an avm command needs it — `avm create`,
+`avm start`, `avm attach`, `avm ssh`, `avm exec`, `avm editor`, and the
+`avm service` subcommands all bring it up if it isn't already running.
 For manual control:
 
 ```
 avm daemon start     # start if not running
 avm daemon stop      # stop
+avm daemon restart   # stop and start (e.g. after upgrading the binary)
 avm daemon status    # check URL, PID, reachability
 ```
 
