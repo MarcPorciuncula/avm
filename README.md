@@ -127,8 +127,8 @@ volumes:
   - go-build:~/.cache/go-build
   - cargo:~/.cargo
 
-# Per-repo config, applied by `avm-link` inside the container after the
-# agent clones a repo. source is relative to ~/.avm/files/.
+# Per-repo config, applied by `avm-bridge link` inside the container after
+# the agent clones a repo. source is relative to ~/.avm/files/.
 repos:
   operator-ui:
     symlinks:
@@ -156,8 +156,8 @@ git clone --mirror git@github.com:<owner>/<repo>.git ~/.avm/mirrors/<repo>.git
 ```
 
 Refresh with `git -C ~/.avm/mirrors/<repo>.git fetch --all --prune`. The
-agent inside the container can then `git clone --reference
-~/mirrors/<repo>.git ...` for near-instant clones.
+agent inside the container can then run `avm-bridge clone <repo>` (which
+resolves the mirror automatically) for near-instant clones.
 
 ### 6. Start your first session
 
@@ -208,8 +208,9 @@ list of matches and exit. `avm clean` with a prefix prompts for
 confirmation.
 
 Inside every container, `clauded` is an alias for
-`claude --dangerously-skip-permissions`, and `avm-link` applies the
-per-repo symlinks declared in `~/.avm/config.yaml`.
+`claude --dangerously-skip-permissions`, and `avm-bridge link` applies
+the per-repo symlinks declared in `~/.avm/config.yaml` (run from inside
+a working copy under `~/work/`).
 
 Run `avm ssh-config install` (or accept the prompt on your first
 `avm create`) to wire an `Include ~/.avm/ssh_config` line into your
@@ -244,7 +245,7 @@ which ship as part of the CLI.
 │   └── claude.json       # → ~/.claude.json in container (file bind mount)
 ├── mirrors/              # → ~/mirrors in container (bind mount)
 ├── volumes/              # bind sources declared in config.yaml
-└── files/                # symlink sources for avm-link (→ ~/.avm-files in container)
+└── files/                # symlink sources for `avm-bridge link` (→ ~/.avm-files in container)
 ```
 
 ## How `avm create` / `avm start` Work
@@ -257,11 +258,13 @@ difference is what happens first:
 - **`avm start`** runs `docker start` (the container already exists with
   its mounts baked in from creation).
 
-Both then run `applyPostCreationSetup`:
-
-1. Seed `~/.avm/system/claude/CLAUDE.md` from `templates/vm-claude.md`
-   if missing (never overwrites).
-2. Generate `/usr/local/bin/avm-link` from `config.yaml`.
+Both then run `applyPostCreationSetup`, which persists `AVM_*` env vars
+into `/etc/environment` (so SSH sessions inherit them), symlinks
+image-shipped skills into `~/.claude/skills/`, and ensures `avm-bridge`
+is executable. Per-repo symlinks are no longer baked into the
+container — they're applied on demand by `avm-bridge link` (the bridge
+fetches the current `config.yaml` from the daemon at call time, so
+edits take effect without `avm start`).
 
 Mounts are established at container creation time and persist across
 `docker stop` / `docker start`. The container only sees explicitly
@@ -270,10 +273,11 @@ mounted paths — no lockdown step is needed.
 ## Cloning Repos From Inside the Container
 
 `avm create` and `avm start` deliberately don't clone repos. That's the
-agent's job, inside the container. The CLI's job is to make the tools
-available: mirrors at `~/mirrors/`, overlay files at `~/.avm-files/`,
-and `avm-link` on the PATH. The in-container `CLAUDE.md` (seeded from
-`templates/vm-claude.md`) tells the agent how to use them.
+agent's job, inside the container, via `avm-bridge clone <name>`. The
+CLI's job is to make the tools available: mirrors at `~/mirrors/`,
+overlay files at `~/.avm-files/`, and `avm-bridge` on the PATH. The
+in-container `CLAUDE.md` (seeded from `templates/vm-claude.md`) tells
+the agent how to use them.
 
 ## Customizing
 
