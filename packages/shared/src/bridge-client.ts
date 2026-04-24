@@ -4,6 +4,7 @@ import { ServicesService } from "./gen/avm/bridge/v1/services_pb.js";
 import { EditorService } from "./gen/avm/bridge/v1/editor_pb.js";
 import { BrowserService } from "./gen/avm/bridge/v1/browser_pb.js";
 import { NotificationService } from "./gen/avm/bridge/v1/notification_pb.js";
+import { ReposService } from "./gen/avm/bridge/v1/repos_pb.js";
 
 export { ServicesService } from "./gen/avm/bridge/v1/services_pb.js";
 export type {
@@ -34,6 +35,13 @@ export type {
   NotifyResponse,
 } from "./gen/avm/bridge/v1/notification_pb.js";
 export { NotificationKind } from "./gen/avm/bridge/v1/notification_pb.js";
+
+export { ReposService } from "./gen/avm/bridge/v1/repos_pb.js";
+export type {
+  GetRepoRequest,
+  Repo,
+  SymlinkMount,
+} from "./gen/avm/bridge/v1/repos_pb.js";
 
 function authInterceptor(token: string): Interceptor {
   return (next) => (req) => {
@@ -76,4 +84,13 @@ export function createBridgeNotificationClient(port: number, token: string) {
     interceptors: [authInterceptor(token)],
   });
   return createClient(NotificationService, transport);
+}
+
+export function createBridgeReposClient(port: number, token: string) {
+  const transport = createConnectTransport({
+    baseUrl: `http://127.0.0.1:${port}`,
+    httpVersion: "1.1",
+    interceptors: [authInterceptor(token)],
+  });
+  return createClient(ReposService, transport);
 }
