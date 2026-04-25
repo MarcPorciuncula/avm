@@ -54,14 +54,14 @@ function hashDirectory(dirPath: string): string {
 }
 
 /** Compute the content hash for the core image build inputs. */
-async function computeCoreImageHash(): Promise<string> {
+function computeCoreImageHash(): string {
   const df = hashFile(path.join(REPO_ROOT, "dockerfiles", "core.Dockerfile"));
   const tmpl = hashDirectory(path.join(REPO_ROOT, "templates"));
   return createHash("sha256").update(df).update(tmpl).digest("hex");
 }
 
 /** Compute the content hash for the user image build inputs. */
-async function computeUserImageHash(): Promise<string> {
+function computeUserImageHash(): string {
   const df = hashFile(USER_DOCKERFILE);
   const ctx = hashDirectory(USER_BUILD_CONTEXT);
   return createHash("sha256").update(df).update(ctx).digest("hex");
@@ -98,7 +98,7 @@ export interface PruneResult {
  */
 export async function buildCoreImage(force = false): Promise<boolean> {
   const dockerfile = path.join(REPO_ROOT, "dockerfiles", "core.Dockerfile");
-  const hash = await computeCoreImageHash();
+  const hash = computeCoreImageHash();
 
   if (!force) {
     const existing = await getImageBuildHash("avm-core:latest");
@@ -134,7 +134,7 @@ export async function buildUserImage(force = false): Promise<string | null> {
 
   await $`mkdir -p ${USER_BUILD_CONTEXT}`;
 
-  const hash = await computeUserImageHash();
+  const hash = computeUserImageHash();
 
   if (!force) {
     const existing = await getImageBuildHash("avm:latest");
@@ -166,7 +166,7 @@ export async function buildUserImage(force = false): Promise<string | null> {
 
 /**
  * Build both images in sequence: core first, then user layer.
- * Returns the timestamped tag of the user image, or null if both were skipped.
+ * Returns the timestamped tag of the user image, or null if the user image was skipped.
  */
 export async function provisionImages(force = false): Promise<string | null> {
   await buildCoreImage(force);
