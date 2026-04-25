@@ -9,15 +9,32 @@ export const provisionCommand = defineCommand({
     description:
       "Build the avm-core and user Docker images for agent containers.",
   },
-  async run() {
-    const tag = await provisionImages();
+  args: {
+    force: {
+      type: "boolean",
+      description: "Rebuild images even if inputs are unchanged.",
+      alias: "f",
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const tag = await provisionImages(args.force);
 
-    console.log();
-    console.log(`Done. Images built — avm:${tag} / avm:latest.`);
+    if (tag === null) {
+      console.log();
+      console.log("Nothing to provision — both images are up to date.");
+      console.log("Run with --force to rebuild unconditionally.");
+      console.log();
+    } else {
+      console.log();
+      console.log(`Done. Images built — avm:${tag} / avm:latest.`);
+      console.log();
+      console.log("Start an agent session: avm create --attach");
+      console.log();
+    }
 
     const config = loadAvmConfig();
     if (config.prune_images.enabled) {
-      console.log();
       console.log(
         `==> Pruning old avm images (keep_recent=${config.prune_images.keep_recent})...`,
       );
@@ -31,10 +48,6 @@ export const provisionCommand = defineCommand({
         }
       }
     }
-
-    console.log();
-    console.log(`Start an agent session: avm create --attach`);
-    console.log();
 
     // First-run prompt for host notifications. No-op if already answered.
     await maybePromptForInstall();
