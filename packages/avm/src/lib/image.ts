@@ -1,12 +1,86 @@
 import { $, path } from "zx";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { AVM_HOME, REPO_ROOT, USER_IMAGE } from "./config.ts";
+
+const BUILD_HASH_LABEL = "avm.build-hash";
 
 const USER_DOCKERFILE = path.join(AVM_HOME, "Dockerfile");
 const USER_BUILD_CONTEXT = path.join(AVM_HOME, "build-context");
 
 /** Matches the timestamped tags produced by buildUserImage (UTC, second precision). */
 const TIMESTAMP_TAG_PATTERN = /^\d{8}-\d{6}$/;
+
+// ---------------------------------------------------------------------------
+// Hash utilities
+// ---------------------------------------------------------------------------
+
+/** Compute the SHA-256 hex digest of a file's contents. Throws if missing. */
+function hashFile(filePath: string): string {
+  const contents = readFileSync(filePath);
+  return createHash("sha256").update(contents).digest("hex");
+}
+
+/**
+ * Compute a stable SHA-256 hex digest of all files under dirPath.
+ * Files are sorted by relative path for determinism.
+ * Returns the string 'empty' if the directory does not exist.
+ */
+function hashDirectory(dirPath: string): string {
+  if (!existsSync(dirPath)) return "empty";
+
+  const collect = (dir: string, base: string): { rel: string; abs: string }[] => {
+    const entries: { rel: string; abs: string }[] = [];
+    for (const name of readdirSync(dir).sort()) {
+      const abs = path.join(dir, name);
+      const rel = path.join(base, name);
+      const stat = statSync(abs);
+      if (stat.isDirectory()) {
+        entries.push(...collect(abs, rel));
+      } else {
+        entries.push({ rel, abs });
+      }
+    }
+    return entries;
+  };
+
+  const files = collect(dirPath, "");
+  const combined = createHash("sha256");
+  for (const { rel, abs } of files) {
+    combined.update(createHash("sha256").update(rel).digest("hex"));
+    combined.update(createHash("sha256").update(readFileSync(abs)).digest("hex"));
+  }
+  return combined.digest("hex");
+}
+
+/** Compute the content hash for the core image build inputs. */
+async function computeCoreImageHash(): Promise<string> {
+  const df = hashFile(path.join(REPO_ROOT, "dockerfiles", "core.Dockerfile"));
+  const tmpl = hashDirectory(path.join(REPO_ROOT, "templates"));
+  return createHash("sha256").update(df).update(tmpl).digest("hex");
+}
+
+/** Compute the content hash for the user image build inputs. */
+async function computeUserImageHash(): Promise<string> {
+  const df = hashFile(USER_DOCKERFILE);
+  const ctx = hashDirectory(USER_BUILD_CONTEXT);
+  return createHash("sha256").update(df).update(ctx).digest("hex");
+}
+
+/**
+ * Read the avm.build-hash label from an existing Docker image.
+ * Returns null if the image does not exist or the label is absent.
+ */
+async function getImageBuildHash(imageRef: string): Promise<string | null> {
+  try {
+    const result =
+      await $`docker inspect --format=${"{{index .Config.Labels \"" + BUILD_HASH_LABEL + "\"}}"} ${imageRef}`.quiet();
+    const value = result.stdout.trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
 
 export interface PruneResult {
   removed: string[];
@@ -19,11 +93,24 @@ export interface PruneResult {
  * This image contains the minimal base every avm container needs:
  * system packages, Node.js, Claude Code, the agent user, and
  * /opt/avm/helpers.sh. It is tagged as avm-core:latest.
+ *
+ * Returns true if the image was built, false if skipped.
  */
-export async function buildCoreImage(): Promise<void> {
+export async function buildCoreImage(force = false): Promise<boolean> {
   const dockerfile = path.join(REPO_ROOT, "dockerfiles", "core.Dockerfile");
+  const hash = await computeCoreImageHash();
+
+  if (!force) {
+    const existing = await getImageBuildHash("avm-core:latest");
+    if (existing === hash) {
+      console.log("==> avm-core is up to date. Use --force to rebuild.");
+      return false;
+    }
+  }
+
   console.log("==> Building avm-core image...");
-  await $`docker build -t avm-core:latest -f ${dockerfile} ${REPO_ROOT}`;
+  await $`docker build -t avm-core:latest --label ${BUILD_HASH_LABEL}=${hash} -f ${dockerfile} ${REPO_ROOT}`;
+  return true;
 }
 
 /**
@@ -33,9 +120,9 @@ export async function buildCoreImage(): Promise<void> {
  * etc.) on top of avm-core:latest. The build context is ~/.avm/build-context/
  * so users can COPY files they need into the image.
  *
- * Returns the timestamped tag (e.g. "20260411-143022").
+ * Returns the timestamped tag (e.g. "20260411-143022"), or null if skipped.
  */
-export async function buildUserImage(): Promise<string> {
+export async function buildUserImage(force = false): Promise<string | null> {
   if (!existsSync(USER_DOCKERFILE)) {
     throw new Error(
       `${USER_DOCKERFILE} not found.\n` +
@@ -46,6 +133,16 @@ export async function buildUserImage(): Promise<string> {
   }
 
   await $`mkdir -p ${USER_BUILD_CONTEXT}`;
+
+  const hash = await computeUserImageHash();
+
+  if (!force) {
+    const existing = await getImageBuildHash("avm:latest");
+    if (existing === hash) {
+      console.log("==> avm (user image) is up to date. Use --force to rebuild.");
+      return null;
+    }
+  }
 
   const now = new Date();
   const ts = [
@@ -62,18 +159,18 @@ export async function buildUserImage(): Promise<string> {
   const tagLatest = "avm:latest";
 
   console.log(`==> Building user image (${tagTimestamped})...`);
-  await $`docker build -t ${tagTimestamped} -t ${tagLatest} -f ${USER_DOCKERFILE} ${USER_BUILD_CONTEXT}`;
+  await $`docker build -t ${tagTimestamped} -t ${tagLatest} --label ${BUILD_HASH_LABEL}=${hash} -f ${USER_DOCKERFILE} ${USER_BUILD_CONTEXT}`;
 
   return ts;
 }
 
 /**
  * Build both images in sequence: core first, then user layer.
- * Returns the timestamped tag of the user image.
+ * Returns the timestamped tag of the user image, or null if both were skipped.
  */
-export async function provisionImages(): Promise<string> {
-  await buildCoreImage();
-  return await buildUserImage();
+export async function provisionImages(force = false): Promise<string | null> {
+  await buildCoreImage(force);
+  return await buildUserImage(force);
 }
 
 /**
