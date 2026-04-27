@@ -109,7 +109,8 @@ export async function buildCoreImage(force = false): Promise<boolean> {
   }
 
   console.log("==> Building avm-core image...");
-  await $`docker build -t avm-core:latest --label ${BUILD_HASH_LABEL}=${hash} -f ${dockerfile} ${REPO_ROOT}`;
+  const noCache = force ? ["--no-cache"] : [];
+  await $`docker build ${noCache} -t avm-core:latest --label ${BUILD_HASH_LABEL}=${hash} -f ${dockerfile} ${REPO_ROOT}`;
   return true;
 }
 
@@ -159,7 +160,8 @@ export async function buildUserImage(force = false): Promise<string | null> {
   const tagLatest = "avm:latest";
 
   console.log(`==> Building user image (${tagTimestamped})...`);
-  await $`docker build -t ${tagTimestamped} -t ${tagLatest} --label ${BUILD_HASH_LABEL}=${hash} -f ${USER_DOCKERFILE} ${USER_BUILD_CONTEXT}`;
+  const noCache = force ? ["--no-cache"] : [];
+  await $`docker build ${noCache} -t ${tagTimestamped} -t ${tagLatest} --label ${BUILD_HASH_LABEL}=${hash} -f ${USER_DOCKERFILE} ${USER_BUILD_CONTEXT}`;
 
   return ts;
 }

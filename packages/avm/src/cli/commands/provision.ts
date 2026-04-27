@@ -12,7 +12,8 @@ export const provisionCommand = defineCommand({
   args: {
     force: {
       type: "boolean",
-      description: "Rebuild images even if inputs are unchanged.",
+      description:
+        "Rebuild from scratch: bypass the input-hash check and pass --no-cache to docker build.",
       alias: "f",
       default: false,
     },
