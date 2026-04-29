@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file avm/bridge/v1/editor.proto.
  */
 export const file_avm_bridge_v1_editor: GenFile = /*@__PURE__*/
-  fileDesc("Chphdm0vYnJpZGdlL3YxL2VkaXRvci5wcm90bxINYXZtLmJyaWRnZS52MSJNCg9PcGVuRmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIMCgRsaW5lGAIgASgFEg4KBmNvbHVtbhgDIAEoBRIOCgZlZGl0b3IYBCABKAkiRQoQT3BlbkZpbGVSZXNwb25zZRIOCgZlZGl0b3IYASABKAkSEAoIc3NoX2hvc3QYAiABKAkSDwoHY29tbWFuZBgDIAEoCTJcCg1FZGl0b3JTZXJ2aWNlEksKCE9wZW5GaWxlEh4uYXZtLmJyaWRnZS52MS5PcGVuRmlsZVJlcXVlc3QaHy5hdm0uYnJpZGdlLnYxLk9wZW5GaWxlUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("Chphdm0vYnJpZGdlL3YxL2VkaXRvci5wcm90bxINYXZtLmJyaWRnZS52MSJNCg9PcGVuRmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIMCgRsaW5lGAIgASgFEg4KBmNvbHVtbhgDIAEoBRIOCgZlZGl0b3IYBCABKAkiTQoQT3BlbkZpbGVSZXNwb25zZRIOCgZlZGl0b3IYASABKAkSGAoQcmVtb3RlX2F1dGhvcml0eRgCIAEoCRIPCgdjb21tYW5kGAMgASgJMlwKDUVkaXRvclNlcnZpY2USSwoIT3BlbkZpbGUSHi5hdm0uYnJpZGdlLnYxLk9wZW5GaWxlUmVxdWVzdBofLmF2bS5icmlkZ2UudjEuT3BlbkZpbGVSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message avm.bridge.v1.OpenFileRequest
@@ -54,9 +54,9 @@ export type OpenFileResponse = Message<"avm.bridge.v1.OpenFileResponse"> & {
   editor: string;
 
   /**
-   * @generated from field: string ssh_host = 2;
+   * @generated from field: string remote_authority = 2;
    */
-  sshHost: string;
+  remoteAuthority: string;
 
   /**
    * @generated from field: string command = 3;
