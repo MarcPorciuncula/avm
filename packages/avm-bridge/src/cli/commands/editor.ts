@@ -54,7 +54,7 @@ const openCommand = defineCommand({
         column: args.column ? parseInt(args.column, 10) : 0,
         editor: args.editor ?? "",
       });
-      console.log(`opened ${res.editor} on ssh-remote+${res.sshHost}`);
+      console.log(`opened ${res.editor} on ${res.remoteAuthority}`);
     } catch (err) {
       if (err instanceof ConnectError) {
         console.error(err.message);

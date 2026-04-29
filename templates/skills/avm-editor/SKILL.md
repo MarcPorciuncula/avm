@@ -6,7 +6,8 @@ description: Use when the user asks to open a file in their editor. Must be cons
 # Opening files in the user's editor
 
 Use `avm-bridge editor open` to open a file on the user's host editor
-(Cursor or VS Code) connected to this container via remote SSH.
+(Cursor or VS Code) attached to this container via the Dev Containers
+attached-container URI.
 
 ## Usage
 
@@ -25,16 +26,14 @@ Do not auto-open files you happen to be editing.
 
 ## Error handling
 
-The daemon validates that the editor binary and SSH config are
-installed on the host before launching. If the command fails:
+The daemon validates that the editor binary is installed on the host
+before launching. If the command fails:
 
 - **"No editor configured"** — the user needs to set `editor:` in
   `~/.avm/config.yaml` on the host, or pass `--editor cursor|code`.
 - **"not installed or not in PATH"** — the editor's CLI integration
   needs to be installed on the host (Cursor: Command Palette →
   "Install 'cursor' command", VS Code: similar).
-- **"avm SSH config is not installed"** — the user needs to run
-  `avm ssh-config install` on the host.
 
-All of these are host-side setup steps. Report the error to the user
-so they can fix it.
+Both are host-side setup steps. Report the error to the user so they
+can fix it.

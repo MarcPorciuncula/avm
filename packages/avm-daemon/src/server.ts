@@ -166,7 +166,7 @@ export function createRoutes(
         });
         return create(OpenFileResponseSchema, {
           editor: result.editor,
-          sshHost: result.sshHost,
+          remoteAuthority: result.remoteAuthority,
           command: result.command,
         });
       },

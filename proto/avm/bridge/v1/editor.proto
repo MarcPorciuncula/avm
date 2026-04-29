@@ -14,6 +14,6 @@ message OpenFileRequest {
 
 message OpenFileResponse {
   string editor = 1;
-  string ssh_host = 2;
+  string remote_authority = 2;
   string command = 3;
 }
