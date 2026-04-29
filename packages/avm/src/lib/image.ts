@@ -29,6 +29,7 @@ function hashFile(filePath: string): string {
 function hashDirectory(dirPath: string): string {
   if (!existsSync(dirPath)) return "empty";
 
+  const SKIP_DIRS = new Set([".git", "node_modules"]);
   const collect = (dir: string, base: string): { rel: string; abs: string }[] => {
     const entries: { rel: string; abs: string }[] = [];
     for (const name of readdirSync(dir).sort()) {
@@ -36,6 +37,7 @@ function hashDirectory(dirPath: string): string {
       const rel = path.join(base, name);
       const stat = statSync(abs);
       if (stat.isDirectory()) {
+        if (SKIP_DIRS.has(name)) continue;
         entries.push(...collect(abs, rel));
       } else {
         entries.push({ rel, abs });
