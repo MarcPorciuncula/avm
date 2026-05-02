@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import {
   installInclude,
-  syncSshConfig,
+  syncHostIntegrations,
   uninstallInclude,
 } from "../../lib/ssh-config.ts";
 import { updateState } from "../../lib/state.ts";
@@ -9,10 +9,11 @@ import { updateState } from "../../lib/state.ts";
 const syncSub = defineCommand({
   meta: {
     name: "sync",
-    description: "Regenerate ~/.avm/ssh_config from current containers.",
+    description:
+      "Regenerate ~/.avm/ssh_config and (if installed) ~/.claude/settings.json sshConfigs.",
   },
   async run() {
-    await syncSshConfig();
+    await syncHostIntegrations();
     console.log("Wrote ~/.avm/ssh_config.");
   },
 });
@@ -63,7 +64,7 @@ export const sshConfigCommand = defineCommand({
   },
   // Default when called with no subcommand: sync.
   async run() {
-    await syncSshConfig();
+    await syncHostIntegrations();
     console.log("Wrote ~/.avm/ssh_config.");
   },
 });

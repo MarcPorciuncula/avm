@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { $ } from "zx";
 import { confirm, isCancel, cancel } from "@clack/prompts";
 import { listAvmVms, resolveVmArg, resolveVmByPrefix, type VmInfo } from "../../lib/vm.ts";
-import { syncSshConfig } from "../../lib/ssh-config.ts";
+import { syncHostIntegrations } from "../../lib/ssh-config.ts";
 import { unregisterContainer } from "../../lib/session.ts";
 
 export const cleanCommand = defineCommand({
@@ -114,6 +114,6 @@ export const cleanCommand = defineCommand({
       await $`docker volume rm ${target.name}-docker`.nothrow();
     }
 
-    await syncSshConfig();
+    await syncHostIntegrations();
   },
 });

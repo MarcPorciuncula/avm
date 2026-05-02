@@ -270,8 +270,16 @@ export async function uninstallDesktopConfig(): Promise<UninstallDesktopResult> 
 ---
 
 ## Task 3: Add syncHostIntegrations facade and wire into create/clean
-- [ ] Status
+- [x] Status
 Depends on: Task 2
+
+### Result
+Added `syncHostIntegrations` to `lib/ssh-config.ts`; replaced the
+direct `syncSshConfig()` call sites in `avm create`, `avm clean`, and
+the `ssh-config` command's `syncSub` and root handler. Verified by
+running `node dist/avm.mjs ssh-config sync` against a real settings.json
+with the desktop install flag set — sshConfigs entry was written and
+the desktop app loaded the container successfully. Commit: da35c09
 
 ### Scope
 Add a single facade that callers use instead of calling `syncSshConfig`
