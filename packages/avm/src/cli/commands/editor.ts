@@ -8,7 +8,7 @@ import { listAvmVms, resolveVmByPrefix } from "../../lib/vm.ts";
 export const editorCommand = defineCommand({
   meta: {
     name: "editor",
-    description: "Open a container in your editor (VS Code / Cursor).",
+    description: "Open a container in your editor (VS Code / Cursor / Zed).",
   },
   args: {
     id: {
