@@ -62,7 +62,16 @@ is needed — it works for any `AvmState` subsection.
 ---
 
 ## Task 2: Implement the desktop-config library module
-- [ ] Status
+- [x] Status
+
+### Result
+Implemented `packages/avm/src/lib/desktop-config.ts` with the four
+exported functions and the strict-shape JSON read/write helpers.
+Verified end-to-end via the canonical CLI surface against a real
+`~/.claude/settings.json` containing user-owned hooks/permissions/
+plugins keys — those were preserved verbatim and a single avm
+container appeared as an `sshConfigs` entry that the desktop app
+loaded successfully. Commit: b8f2b3e
 
 ### Scope
 Create the new `lib/desktop-config.ts` module that owns
