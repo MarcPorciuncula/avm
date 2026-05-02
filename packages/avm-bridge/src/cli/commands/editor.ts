@@ -40,7 +40,7 @@ const openCommand = defineCommand({
     },
     editor: {
       type: "string",
-      description: "Editor to use (cursor or code)",
+      description: "Editor to use (cursor, code, or zed)",
     },
   },
   async run({ args }) {

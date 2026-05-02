@@ -1,6 +1,7 @@
 # ~/.avm/config.yaml — example with host services
 
-# Editor for remote-SSH editor connections
+# Editor used by `avm editor` and `avm-bridge editor open`.
+# Allowed: code | cursor | zed.  zed requires `avm ssh-config install`.
 editor: cursor
 
 # Daemon configuration

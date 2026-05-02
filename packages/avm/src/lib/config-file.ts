@@ -4,7 +4,7 @@ import { avmConfigFile } from "./config.ts";
 
 // ---------- Types ----------
 
-export type EditorChoice = "code" | "cursor";
+export type EditorChoice = "code" | "cursor" | "zed";
 
 export interface DaemonConfig {
   port: number;
@@ -142,7 +142,7 @@ const TOP_LEVEL_KEYS = new Set([
   "services",
   "notifications",
 ]);
-const VALID_EDITORS = new Set<string>(["code", "cursor"]);
+const VALID_EDITORS = new Set<string>(["code", "cursor", "zed"]);
 const REPO_KEYS = new Set(["symlinks"]);
 
 function validate(data: unknown): AvmConfig {
