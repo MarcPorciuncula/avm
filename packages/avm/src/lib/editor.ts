@@ -69,12 +69,22 @@ export async function resolveEditorCli(
 }
 
 /**
- * Open a container in the user's editor via the Dev Containers
- * attached-container URI.
+ * Open a container in the user's editor. Dispatches to a per-brand
+ * argv builder: code/cursor use the Dev Containers attached-container
+ * URI; zed uses an SSH URI (requires `avm ssh-config install`).
  */
 export function openInEditor(cli: string, vmName: string): void {
+  const argv = buildWorkspaceArgv(cli, vmName);
+  console.log(`==> Opening ${vmName} in ${cli}...`);
+  spawnSync(argv[0]!, argv.slice(1), { stdio: "inherit" });
+}
+
+function buildWorkspaceArgv(cli: string, vmName: string): string[] {
+  if (cli === "zed") {
+    return ["zed", `ssh://${vmName}/home/agent/work`];
+  }
+  // code / cursor: Dev Containers attached-container URI
   const hexName = Buffer.from(vmName).toString("hex");
   const uri = `vscode-remote://attached-container+${hexName}/home/agent/work`;
-  console.log(`==> Opening ${vmName} in ${cli}...`);
-  spawnSync(cli, ["--folder-uri", uri], { stdio: "inherit" });
+  return [cli, "--folder-uri", uri];
 }

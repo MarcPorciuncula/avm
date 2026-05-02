@@ -58,7 +58,16 @@ In `packages/avm/src/lib/editor.ts`:
 
 ## Task 2: Per-brand workspace argv in host CLI
 
-- [ ] Status
+- [x] Status
+
+### Result
+
+Refactored `openInEditor` in `packages/avm/src/lib/editor.ts` to
+delegate argv construction to a new `buildWorkspaceArgv` helper. The
+zed branch returns `["zed", "ssh://<vm>/home/agent/work"]`; code and
+cursor continue to use the attached-container `--folder-uri` form.
+`pnpm -w build` succeeded.
+Commit: 621fe286f2c84f45e62bdabcb3f45ba08c880ece
 
 ### Scope
 
