@@ -66,9 +66,9 @@ avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more session containers
   --all                   # Clean every session container
-avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
-avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
-avm ssh-config uninstall  # Remove the Include line
+avm ssh-config            # Regenerate ~/.avm/ssh_config (and Claude desktop sshConfigs if installed)
+avm ssh-config install    # Add Include line and (optionally) register containers in Claude desktop
+avm ssh-config uninstall  # Remove the Include line and any avm entries from Claude desktop
 avm provision             # Build or rebuild the Docker images (core + user)
 avm daemon start          # Start the avm daemon (auto-started as needed by other commands)
 avm daemon stop           # Stop the avm daemon
@@ -169,6 +169,12 @@ Running `avm ssh-config install` (or accepting the prompt on first
 `~/.ssh/config`, so `ssh avm-<id>` works from any terminal without
 extra flags. Useful for tools that key off the literal `ssh` command
 (e.g. Warp's terminal "warpify" detection, Cursor remote-SSH).
+
+It also offers to register avm containers in the Claude desktop app's
+environment dropdown (writes `sshConfigs` entries into
+`~/.claude/settings.json`). The two prompts are independent — the user
+can accept either, both, or neither. Pass `--desktop` / `--no-desktop`
+to skip the desktop prompt non-interactively.
 
 Containers without an SSH port assigned must be recreated with `avm create`.
 

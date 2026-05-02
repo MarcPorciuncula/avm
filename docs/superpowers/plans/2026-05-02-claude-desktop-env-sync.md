@@ -587,8 +587,18 @@ desktop app's dropdown directly. Keeping the success summary terse.
 ---
 
 ## Task 6: Update README and avm skill
-- [ ] Status
+- [x] Status
 Depends on: Tasks 4, 5
+
+### Result
+Added a "Claude desktop integration" subsection to README's
+Customizing section covering the install/uninstall flow, the v1
+user-named-container limitation, and the preservation guarantees for
+non-avm settings.json content. Updated the commands table in both
+README and skills/avm/SKILL.md to reflect the new --desktop /
+--no-desktop flags. SKILL.md's "SSH vs Attach" paragraph appended
+with the two-prompt model. templates/vm-claude.md left untouched
+(host-side feature). Commit: 67022a7
 
 ### Scope
 Document the desktop integration in user-facing docs. Two files only —
