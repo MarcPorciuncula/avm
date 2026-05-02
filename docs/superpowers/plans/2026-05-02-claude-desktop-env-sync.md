@@ -24,7 +24,13 @@ No automated tests (per project convention). Verification is manual end-to-end.
 ---
 
 ## Task 1: Extend AvmState with desktopConfig section
-- [ ] Status
+- [x] Status
+
+### Result
+Added `desktopConfig?.installPrompt?: "installed" | "declined"` to
+`AvmState`. Shape mirrors the existing `sshConfig` and `notifications`
+subsections; no logic change needed because `updateState` already
+shallow-merges any top-level subsection. Commit: 64b2f92
 
 ### Scope
 Add a new `desktopConfig` subsection to the `AvmState` interface so the new
