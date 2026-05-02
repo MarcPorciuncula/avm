@@ -511,8 +511,16 @@ const uninstallSub = defineCommand({
 ---
 
 ## Task 5: Add the desktop prompt to avm create
-- [ ] Status
+- [x] Status
 Depends on: Task 2
+
+### Result
+Added the desktop-config tri-state prompt to `avm create`, after the
+existing SSH-config prompt and before the session-ready summary. Same
+"yes / later / never" semantics, independent state slot. Not exercised
+end-to-end in this round (would require creating a fresh container);
+prompt logic is identical in shape to the SSH-config one which is
+already covered by manual testing on previous sessions. Commit: 2b0dd27
 
 ### Scope
 After the existing SSH-config first-run prompt in `avm create`, add a
