@@ -4,7 +4,15 @@ Spec: docs/superpowers/specs/2026-05-02-zed-editor-design.md
 
 ## Task 1: Widen editor config schema to accept "zed"
 
-- [ ] Status
+- [x] Status
+
+### Result
+
+Added `"zed"` to `EditorChoice` and `VALID_EDITORS` in
+`packages/avm/src/lib/config-file.ts`, and a third
+`{ value: "zed", label: "Zed", cli: "zed" }` entry in the `EDITORS`
+array in `packages/avm/src/lib/editor.ts`. `pnpm -w build` succeeded.
+Commit: a8e18195997886ccdb962c9cbc2b1f56500139fb
 
 ### Scope
 

@@ -9,6 +9,7 @@ import {
 const EDITORS: { value: EditorChoice; label: string; cli: string }[] = [
   { value: "cursor", label: "Cursor", cli: "cursor" },
   { value: "code", label: "VS Code", cli: "code" },
+  { value: "zed", label: "Zed", cli: "zed" },
 ];
 
 function editorIsAvailable(cli: string): boolean {
