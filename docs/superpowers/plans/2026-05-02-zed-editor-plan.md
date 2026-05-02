@@ -12,7 +12,6 @@ Added `"zed"` to `EditorChoice` and `VALID_EDITORS` in
 `packages/avm/src/lib/config-file.ts`, and a third
 `{ value: "zed", label: "Zed", cli: "zed" }` entry in the `EDITORS`
 array in `packages/avm/src/lib/editor.ts`. `pnpm -w build` succeeded.
-Commit: a8e18195997886ccdb962c9cbc2b1f56500139fb
 
 ### Scope
 
@@ -67,7 +66,6 @@ delegate argv construction to a new `buildWorkspaceArgv` helper. The
 zed branch returns `["zed", "ssh://<vm>/home/agent/work"]`; code and
 cursor continue to use the attached-container `--folder-uri` form.
 `pnpm -w build` succeeded.
-Commit: 621fe286f2c84f45e62bdabcb3f45ba08c880ece
 
 ### Scope
 

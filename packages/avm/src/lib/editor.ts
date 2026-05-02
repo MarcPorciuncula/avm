@@ -39,8 +39,9 @@ export async function resolveEditorCli(
   const available = EDITORS.filter((e) => editorIsAvailable(e.cli));
 
   if (available.length === 0) {
+    const list = EDITORS.map((e) => `${e.label} (\`${e.cli}\`)`).join(", ");
     console.error(
-      "Error: No supported editor found. Install VS Code (`code`) or Cursor (`cursor`).",
+      `Error: No supported editor found. Install one of: ${list}.`,
     );
     return null;
   }
