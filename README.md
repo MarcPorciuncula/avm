@@ -185,6 +185,7 @@ avm ssh <id>              # Connect to a container over SSH (starts sshd lazily)
   --print-config          # Print an SSH config block for ~/.ssh/config
 avm exec <id> <cmd...>    # Run a command inside a container (non-interactive)
   --root                  # Run as root instead of agent
+avm editor <id>           # Open a container in the configured editor (code, cursor, or zed)
 avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more containers
@@ -380,9 +381,11 @@ Agents inside containers can open files in the user's host editor:
 avm-bridge editor open /home/agent/work/my-repo/src/foo.ts --line 42
 ```
 
-This launches the editor (configured via `editor:` in `~/.avm/config.yaml`)
-in remote-SSH mode, connected to the requesting container. Requires
-`avm ssh-config install`.
+The editor is configured via `editor:` in `~/.avm/config.yaml`. Supported
+values are `code`, `cursor`, and `zed`. `code` and `cursor` use the
+Dev Containers attached-container protocol (no host SSH config needed).
+`zed` connects over SSH and requires `avm ssh-config install` so that
+`ssh avm-<id>` resolves from the host.
 
 ## Architecture Notes
 

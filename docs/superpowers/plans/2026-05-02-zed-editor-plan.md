@@ -269,8 +269,18 @@ two args only.
 
 ## Task 4: Update README, examples, and skill
 
-- [ ] Status
+- [x] Status
 Depends on: Task 3
+
+### Result
+
+Updated README.md (rewrote the "Editor integration" paragraph to list
+code/cursor/zed and call out the SSH prerequisite for zed, and added
+`avm editor <id>` to the Commands code block), `examples/config.yaml`
+(replaced the stale "remote-SSH" comment with one that lists the three
+allowed values and notes the SSH prereq for zed), and
+`skills/avm/SKILL.md` (line 64 comment now includes Zed, plus a brief
+note below the command block flagging the SSH prereq for zed).
 
 ### Scope
 

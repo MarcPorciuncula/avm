@@ -61,7 +61,7 @@ avm ssh <id>              # Connect to a running container over SSH
   --print-config          # Print an SSH config block for ~/.ssh/config
 avm exec <id> <cmd...>    # Run a command inside a container (non-interactive)
   --root                  # Run as root instead of agent
-avm editor [id]           # Open a container in VS Code / Cursor (auto-detects, saves preference)
+avm editor [id]           # Open a container in VS Code / Cursor / Zed (auto-detects, saves preference)
 avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more session containers
@@ -86,6 +86,10 @@ by `avm clean`. Rebuild them with `avm provision`.
 IDs are the suffix after `avm-` (e.g. `k7xf2`). Prefixes work as
 long as they're unambiguous. `avm clean` with a prefix prompts for
 confirmation before deleting.
+
+`avm editor` accepts `code`, `cursor`, or `zed` as the configured
+editor. `code` and `cursor` use the Dev Containers attached-container
+protocol; `zed` connects over SSH and requires `avm ssh-config install`.
 
 ## `avm create` vs `avm start`
 
