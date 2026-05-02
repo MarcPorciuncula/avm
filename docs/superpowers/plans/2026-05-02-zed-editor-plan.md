@@ -130,8 +130,20 @@ needed.
 
 ## Task 3: Per-brand file argv in daemon, drop OpenFileMode
 
-- [ ] Status
+- [x] Status
 Depends on: Task 1
+
+### Result
+
+Refactored `openFile` in `packages/avm-daemon/src/editor.ts` to delegate
+argv construction to a new `buildFileArgv` helper: zed produces
+`zed ssh://<container><path>[:L[:C]]` via `buildSshRemoteAuthority`
+(preserving the existing `FailedPrecondition` SSH-config gate), while
+code/cursor keep the attached-container `--remote` / `--goto` form.
+Removed the unused `OpenFileMode` / `DEFAULT_MODE` machinery and the
+`mode` parameter on `openFile`, and widened `resolveEditor`'s allowlist
+(and its error message) to accept `zed` alongside `cursor` and `code`.
+`pnpm -w build` succeeded.
 
 ### Scope
 

@@ -7,44 +7,22 @@ import { parseDocument } from "yaml";
 
 const CONFIG_PATH = join(homedir(), ".avm", "config.yaml");
 
-export type OpenFileMode = "attached-container" | "ssh-remote";
-
-/**
- * Default transport used by `openFile`. The attached-container path skips
- * the SSH dependency entirely and is preferred for editor-launch from the
- * bridge. The ssh-remote path is preserved for cases where attaching to a
- * local Docker socket isn't viable.
- */
-const DEFAULT_MODE: OpenFileMode = "attached-container";
-
 /**
  * Open a file in the user's editor on the host. Resolves the editor from
- * the request or config, validates prerequisites for the chosen mode,
- * spawns the editor detached, and returns metadata about what was
- * launched.
+ * the request or config, validates the editor binary, dispatches to a
+ * per-brand argv builder, spawns the editor detached, and returns
+ * metadata about what was launched.
  */
 export function openFile(
   containerName: string,
   req: { path: string; line: number; column: number; editor: string },
-  mode: OpenFileMode = DEFAULT_MODE,
 ): { editor: string; remoteAuthority: string; command: string } {
   const editorName = resolveEditor(req.editor);
   validateEditorBinary(editorName);
 
-  const remoteAuthority = mode === "ssh-remote"
-    ? buildSshRemoteAuthority(containerName)
-    : buildAttachedContainerAuthority(containerName);
+  const { argv, remoteAuthority } = buildFileArgv(editorName, containerName, req);
 
-  const argv = ["--remote", remoteAuthority, req.path];
-  if (req.line > 0) {
-    let gotoTarget = `${req.path}:${req.line}`;
-    if (req.column > 0) {
-      gotoTarget += `:${req.column}`;
-    }
-    argv.push("--goto", gotoTarget);
-  }
-
-  const child = spawn(editorName, argv, {
+  const child = spawn(argv[0], argv.slice(1), {
     detached: true,
     stdio: "ignore",
   });
@@ -53,8 +31,34 @@ export function openFile(
   return {
     editor: editorName,
     remoteAuthority,
-    command: [editorName, ...argv].join(" "),
+    command: argv.join(" "),
   };
+}
+
+function buildFileArgv(
+  editorName: string,
+  containerName: string,
+  req: { path: string; line: number; column: number },
+): { argv: string[]; remoteAuthority: string } {
+  if (editorName === "zed") {
+    const remoteAuthority = buildSshRemoteAuthority(containerName);
+    let target = `ssh://${containerName}${req.path}`;
+    if (req.line > 0) {
+      target += `:${req.line}`;
+      if (req.column > 0) target += `:${req.column}`;
+    }
+    return { argv: ["zed", target], remoteAuthority };
+  }
+
+  // code / cursor: attached-container URI
+  const remoteAuthority = buildAttachedContainerAuthority(containerName);
+  const argv = [editorName, "--remote", remoteAuthority, req.path];
+  if (req.line > 0) {
+    let gotoTarget = `${req.path}:${req.line}`;
+    if (req.column > 0) gotoTarget += `:${req.column}`;
+    argv.push("--goto", gotoTarget);
+  }
+  return { argv, remoteAuthority };
 }
 
 function resolveEditor(requested: string): string {
@@ -77,9 +81,9 @@ function resolveEditor(requested: string): string {
       Code.FailedPrecondition,
     );
   }
-  if (editorName !== "cursor" && editorName !== "code") {
+  if (editorName !== "cursor" && editorName !== "code" && editorName !== "zed") {
     throw new ConnectError(
-      `Unsupported editor: ${editorName}. Only "cursor" and "code" are supported.`,
+      `Unsupported editor: ${editorName}. Only "cursor", "code", and "zed" are supported.`,
       Code.InvalidArgument,
     );
   }
