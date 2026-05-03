@@ -344,7 +344,7 @@ no-subcommand handler at the bottom of the file should also call
 ---
 
 ## Task 4: Wire desktop install/uninstall into the ssh-config command
-- [ ] Status
+- [x] Status
 Depends on: Task 2
 
 ### Scope
