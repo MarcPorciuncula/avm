@@ -11,6 +11,10 @@ export interface AvmState {
     /** Set when the user has answered the first-run install prompt. */
     installPrompt?: "installed" | "declined";
   };
+  desktopConfig?: {
+    /** Set when the user has answered the desktop-config first-run prompt. */
+    installPrompt?: "installed" | "declined";
+  };
 }
 
 /** Read `~/.avm/state.json`. Returns `{}` if missing or malformed. */

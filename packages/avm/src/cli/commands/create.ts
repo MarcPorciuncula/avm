@@ -4,7 +4,7 @@ import { select, isCancel } from "@clack/prompts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
 import { USER_IMAGE, AVM_LABEL, SSH_PORT_LABEL, getHostTimezone, sshPortForId } from "../../lib/config.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
-import { installInclude, syncSshConfig } from "../../lib/ssh-config.ts";
+import { installInclude, syncHostIntegrations } from "../../lib/ssh-config.ts";
 import { readState, updateState } from "../../lib/state.ts";
 import {
   applyPostCreationSetup,
@@ -111,7 +111,7 @@ export const createCommand = defineCommand({
     console.log(`==> Starting sshd in ${vmName}...`);
     await ensureSshd(vmName, sshPort);
 
-    await syncSshConfig();
+    await syncHostIntegrations();
 
     const state = readState();
     if (state.sshConfig?.installPrompt === undefined) {
