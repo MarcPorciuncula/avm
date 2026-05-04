@@ -33,22 +33,10 @@ const installSub = defineCommand({
     desktop: {
       type: "boolean",
       description:
-        "Also register avm containers in ~/.claude/settings.json. Skips the prompt.",
-    },
-    "no-desktop": {
-      type: "boolean",
-      description:
-        "Don't register avm containers in ~/.claude/settings.json. Skips the prompt.",
+        "Register avm containers in ~/.claude/settings.json. Use --no-desktop to opt out. Either form skips the prompt.",
     },
   },
   async run({ args }) {
-    if (args.desktop && args["no-desktop"]) {
-      console.error(
-        "Error: --desktop and --no-desktop are mutually exclusive.",
-      );
-      process.exit(1);
-    }
-
     // 1. Existing SSH-config install (unchanged behaviour).
     const sshResult = await installInclude();
     updateState({ sshConfig: { installPrompt: "installed" } });
@@ -59,10 +47,12 @@ const installSub = defineCommand({
       console.log("Already installed — ~/.ssh/config already includes avm's config.");
     }
 
-    // 2. Decide on desktop side.
+    // 2. Decide on desktop side. parseArgs treats --no-X as the negation of
+    // --X, so --desktop and --no-desktop both map to args.desktop (true/false).
     let wantDesktop: boolean | null = null;
-    if (args.desktop) wantDesktop = true;
-    else if (args["no-desktop"]) wantDesktop = false;
+    if (typeof args.desktop === "boolean") {
+      wantDesktop = args.desktop;
+    }
 
     if (wantDesktop === null) {
       const state = readState();
@@ -144,9 +134,8 @@ export const sshConfigCommand = defineCommand({
     install: installSub,
     uninstall: uninstallSub,
   },
-  // Default when called with no subcommand: sync.
-  async run() {
-    await syncHostIntegrations();
-    console.log("Wrote ~/.avm/ssh_config.");
-  },
+  // No subcommand → dispatch to sync. citty 0.2.2 fires both the matched
+  // subcommand and the parent's `run` (causing duplicate output), so use
+  // `default` instead of a parent `run` to express the fallback.
+  default: "sync",
 });
