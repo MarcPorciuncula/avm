@@ -667,8 +667,27 @@ inner agent per project principles).
 ---
 
 ## Task 7: Manual end-to-end verification
-- [ ] Status
+- [x] Status
 Depends on: Tasks 3, 4, 5, 6
+
+### Result
+Verified end-to-end against `~/.claude/settings.json` containing
+real user-owned keys (hooks, permissions, plugins, oauth tokens).
+
+| Step | Outcome |
+|---|---|
+| 3. Fresh install via `avm ssh-config install --desktop` | sshConfigs entry written for the running container; `desktopConfig.installPrompt: "installed"` set in state.json |
+| 6. Hand-add a non-avm `sshConfigs` entry, re-sync | non-avm entry preserved verbatim; avm entry re-appended |
+| 7. Hand-edit an avm entry's `name` and `startDirectory`, re-sync | avm entry restored to canonical shape; user edit overwritten as designed |
+| 8. Inject malformed JSON, run sync | command exits non-zero with "Refusing to overwrite … file is not valid JSON"; file left unchanged |
+| 9. `avm ssh-config uninstall` | `~/.ssh/config` Include block removed; avm-owned `sshConfigs` entries dropped; non-avm entries preserved; both `sshConfig` and `desktopConfig` install flags cleared |
+| 11. Desktop app smoke test | container appeared in the environment dropdown; user confirmed the entry was selectable |
+
+Steps 4 (avm create new container) and 5 (avm clean) and 10 (first-run
+prompt sequence) were not exercised in the verification round — they
+require destructive container ops the user didn't want to incur during
+testing. Their behaviour follows from Tasks 3 and 5 via static
+inspection of the call-site changes.
 
 ### Scope
 Walk through the full lifecycle by hand and confirm `~/.claude/settings.json`
