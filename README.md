@@ -190,9 +190,11 @@ avm stop <id...>          # Stop one or more containers without destroying them
   --all                   # Stop every running session container
 avm clean <id...>         # Stop and delete one or more containers
   --all                   # Clean every session container
-avm ssh-config            # Regenerate ~/.avm/ssh_config from current containers
-avm ssh-config install    # Add Include line to ~/.ssh/config (enables `ssh avm-<id>`)
-avm ssh-config uninstall  # Remove the Include line
+avm ssh-config            # Regenerate ~/.avm/ssh_config (and ~/.claude/settings.json if installed)
+avm ssh-config install    # Add Include to ~/.ssh/config and (optionally) register avm in Claude desktop
+  --desktop               # Skip the prompt; install desktop registration
+  --no-desktop            # Skip the prompt; don't install desktop registration
+avm ssh-config uninstall  # Remove the Include and any avm entries from ~/.claude/settings.json
 avm provision             # Build or rebuild the Docker images
 avm daemon start          # Start the host daemon (background; auto-started as needed)
 avm daemon stop           # Stop the host daemon
@@ -330,6 +332,27 @@ on `avm start`.
 inside every container. On first session creation it's seeded from
 `templates/vm-claude.md`. Edit it freely afterwards — the seed is never
 re-copied over an existing file.
+
+### Claude desktop integration
+
+`avm ssh-config install` offers to register avm containers as SSH
+environments in the Claude desktop app's environment dropdown. When
+enabled, every container with an SSH port is mirrored into
+`~/.claude/settings.json` `sshConfigs` as it's created or destroyed.
+The desktop app picks the entries up automatically; from there you can
+start a Claude Code session that runs inside the avm container with one
+click.
+
+The integration is opt-in (separate prompt and state flag from the SSH
+config Include) and is removed by `avm ssh-config uninstall`. Pass
+`--desktop` or `--no-desktop` to `install` to skip the prompt
+non-interactively.
+
+v1 only registers containers with the auto-generated `avm-<5 char>`
+name format — user-named containers (`avm create my-feature`) are not
+added to the dropdown. All other top-level keys in
+`~/.claude/settings.json` (hooks, permissions, plugins) and any
+non-avm `sshConfigs` entries are preserved verbatim across syncs.
 
 ## Host Services
 

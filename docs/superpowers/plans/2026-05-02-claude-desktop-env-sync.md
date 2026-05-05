@@ -511,8 +511,16 @@ const uninstallSub = defineCommand({
 ---
 
 ## Task 5: Add the desktop prompt to avm create
-- [ ] Status
+- [x] Status
 Depends on: Task 2
+
+### Result
+Added the desktop-config tri-state prompt to `avm create`, after the
+existing SSH-config prompt and before the session-ready summary. Same
+"yes / later / never" semantics, independent state slot. Not exercised
+end-to-end in this round (would require creating a fresh container);
+prompt logic is identical in shape to the SSH-config one which is
+already covered by manual testing on previous sessions. Commit: 2b0dd27
 
 ### Scope
 After the existing SSH-config first-run prompt in `avm create`, add a
@@ -579,8 +587,18 @@ desktop app's dropdown directly. Keeping the success summary terse.
 ---
 
 ## Task 6: Update README and avm skill
-- [ ] Status
+- [x] Status
 Depends on: Tasks 4, 5
+
+### Result
+Added a "Claude desktop integration" subsection to README's
+Customizing section covering the install/uninstall flow, the v1
+user-named-container limitation, and the preservation guarantees for
+non-avm settings.json content. Updated the commands table in both
+README and skills/avm/SKILL.md to reflect the new --desktop /
+--no-desktop flags. SKILL.md's "SSH vs Attach" paragraph appended
+with the two-prompt model. templates/vm-claude.md left untouched
+(host-side feature). Commit: 67022a7
 
 ### Scope
 Document the desktop integration in user-facing docs. Two files only —
@@ -649,8 +667,27 @@ inner agent per project principles).
 ---
 
 ## Task 7: Manual end-to-end verification
-- [ ] Status
+- [x] Status
 Depends on: Tasks 3, 4, 5, 6
+
+### Result
+Verified end-to-end against `~/.claude/settings.json` containing
+real user-owned keys (hooks, permissions, plugins, oauth tokens).
+
+| Step | Outcome |
+|---|---|
+| 3. Fresh install via `avm ssh-config install --desktop` | sshConfigs entry written for the running container; `desktopConfig.installPrompt: "installed"` set in state.json |
+| 6. Hand-add a non-avm `sshConfigs` entry, re-sync | non-avm entry preserved verbatim; avm entry re-appended |
+| 7. Hand-edit an avm entry's `name` and `startDirectory`, re-sync | avm entry restored to canonical shape; user edit overwritten as designed |
+| 8. Inject malformed JSON, run sync | command exits non-zero with "Refusing to overwrite … file is not valid JSON"; file left unchanged |
+| 9. `avm ssh-config uninstall` | `~/.ssh/config` Include block removed; avm-owned `sshConfigs` entries dropped; non-avm entries preserved; both `sshConfig` and `desktopConfig` install flags cleared |
+| 11. Desktop app smoke test | container appeared in the environment dropdown; user confirmed the entry was selectable |
+
+Steps 4 (avm create new container) and 5 (avm clean) and 10 (first-run
+prompt sequence) were not exercised in the verification round — they
+require destructive container ops the user didn't want to incur during
+testing. Their behaviour follows from Tasks 3 and 5 via static
+inspection of the call-site changes.
 
 ### Scope
 Walk through the full lifecycle by hand and confirm `~/.claude/settings.json`
