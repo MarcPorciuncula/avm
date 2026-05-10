@@ -47,7 +47,7 @@ function buildFileArgv(
       target += `:${req.line}`;
       if (req.column > 0) target += `:${req.column}`;
     }
-    return { argv: ["zed", target], remoteAuthority };
+    return { argv: ["zed", "-a", target], remoteAuthority };
   }
 
   // code / cursor: attached-container URI
