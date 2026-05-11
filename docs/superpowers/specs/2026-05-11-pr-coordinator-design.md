@@ -218,6 +218,7 @@ declared in `~/.avm/config.yaml`:
 coordinator:
   enabled: true
   allowlist: [marc]
+  max_concurrent_tasks: 1               # global semaphore; default 1 (sequential)
   task_types:
     update-branch:
       hotword: /avm update
@@ -231,6 +232,11 @@ coordinator:
 
 Fields:
 
+- `max_concurrent_tasks` — integer cap on simultaneously running
+  tasks across all PRs. Defaults to 1 (sequential). Per-branch
+  locking is unchanged; this is the *additional* global gate. Tasks
+  waiting on the semaphore stay `queued` in SQLite; their trigger
+  comments show 👀 (seen, queued) until the semaphore admits them.
 - `hotword` — the comment trigger for this task type. Must be unique
   across configured task types.
 - `auto_trigger` — predicate evaluated during polling. v1 supports
@@ -662,16 +668,17 @@ CREATE TABLE tasks (
   repo_full_name TEXT NOT NULL,
   pr_number INTEGER NOT NULL,
   branch_key TEXT NOT NULL,
-  task_type TEXT NOT NULL,        -- 'update-branch' (v1)
-  trigger_kind TEXT NOT NULL,     -- 'hotword' | 'ready-transition'
+  task_type TEXT NOT NULL,        -- name from coordinator.task_types
+  trigger_kind TEXT NOT NULL,     -- hotword | ready-transition | boot-recovery
   trigger_comment_id TEXT,
-  status TEXT NOT NULL,           -- queued|running|cancelled|done|failed
+  status TEXT NOT NULL,           -- queued|running|cancelled|done|failed|failed-orphaned
   container_name TEXT,
   started_at TEXT,
   finished_at TEXT,
   exit_code INTEGER,
   failure_class TEXT,             -- transient|needs-credentials|needs-human
-  log_path TEXT
+  log_path TEXT,
+  auto_retriggered INTEGER NOT NULL DEFAULT 0   -- set on tasks queued via boot-recovery
 );
 CREATE INDEX idx_tasks_branch_status ON tasks(branch_key, status);
 CREATE INDEX idx_tasks_pr ON tasks(repo_full_name, pr_number);
@@ -880,8 +887,22 @@ Per CLAUDE.md, no automated tests. Manual end-to-end verification:
 9. Close a PR. Within the next sweep cycle, verify its `avm-backup/*`
    refs are deleted from origin and its `watched_prs` row is removed.
 10. Restart the daemon mid-task. Observe: on boot, the orphaned task
-    is reaped, the lock released, the control comment updated to
-    reflect the failure.
+    is reaped (marked `failed-orphaned`, lock released), dispatch
+    criteria are re-evaluated, and a fresh task is queued if still
+    applicable. Restart the daemon a second time mid-task — the
+    second reap does NOT auto-retrigger (the previous task carried
+    `auto_retriggered=true`, so we don't chain), and the control
+    comment surfaces a `needs-human` notice.
+
+11. Configure `max_concurrent_tasks: 2`, then trigger three eligible
+    PRs at once. Observe: two tasks run in parallel; the third stays
+    `queued` (👀 reaction only) until one of the first two
+    completes, then advances to `running` (🚀).
+
+12. Inline `prompt:` vs `prompt_file:` — each form configured for a
+    distinct task type. Trigger both; verify both execute correctly.
+    Edit the prompt file between two triggers and verify the second
+    task uses the updated text without restarting the daemon.
 
 ## Alternatives considered
 
@@ -978,3 +999,24 @@ Per CLAUDE.md, no automated tests. Manual end-to-end verification:
   type for address-review will need either a coordinator-tailored
   skill variant or a non-interactive mode in the upstream skill —
   out of scope here.
+
+- **Host pre-writes a failed-stub result file before invoking the
+  agent.** Considered to make "agent didn't write the result file"
+  detectable as a distinct failure mode. Rejected as adding moving
+  parts for marginal robustness gain — missing-file on read is
+  classified as `failed` regardless, and the captured agent log
+  surfaces whatever the agent actually did.
+
+- **Reap-only on boot reconciliation (no auto-retrigger).**
+  Considered. Rejected because the typical reason for daemon restart
+  is a quick `avm daemon restart` or a host reboot, neither of which
+  has anything to do with the task's correctness — re-evaluating
+  dispatch and re-queueing recovers automatically without the user
+  having to re-post `/avm update`. The `auto_retriggered` flag
+  prevents chained restarts from looping.
+
+- **Resuming orphaned tasks rather than reap-and-retrigger.**
+  Rejected. Phase boundaries aren't atomically recorded; attempting
+  to detect "we were between step 7 and 8" is fragile, and getting
+  it wrong risks double-promotion. Reap and re-run from step 1 is
+  safer — the agent and backup-push steps are idempotent.
