@@ -28,9 +28,20 @@ skills, and tracks state durably across daemon restarts.
 
 ## Goals (v1)
 
-- Automate `update-branch` for opt-in PRs without manual host-side
-  intervention.
-- Opt-in is per-PR via a hotword in a PR comment (`/avm update`),
+- Provide a coordinator framework that polls GitHub, dispatches
+  ephemeral avm containers to perform user-defined tasks against
+  opt-in PRs, and tracks state durably across daemon restarts.
+- Make task types user-configurable: each declares its hotword,
+  trigger predicate, and prompt (inline or a file path under
+  `~/.avm/`). The framework is task-agnostic; no task is hardcoded.
+- Ship one example task type — `update-branch` with hotword
+  `/avm update` — as the v1 reference and the only validated task.
+- Enforce a strict trust boundary: the in-container agent only
+  mutates the working tree; the coordinator owns every destructive
+  remote operation (backup pushes, branch promotion, ref deletion,
+  comment posting). Pushes are gated on lock + PR-state re-checks
+  and use `--force-with-lease` against the recorded pre-rebase SHA.
+- Opt-in is per-PR via the configured hotword in a PR comment,
   requiring no repo configuration and invisible to other contributors.
 - Coordinator state lives in two places: a per-PR "control comment"
   (durable, GitHub-side) and a host-side SQLite database (cache and
@@ -41,8 +52,9 @@ skills, and tracks state durably across daemon restarts.
   branch.
 - Before any history-rewriting operation, push a backup branch to
   origin and record it so manual recovery is possible.
-- Classify task failures so a single expired Claude credential trips a
-  circuit breaker rather than burning the whole retry budget.
+- Classify task failures with built-in patterns so a single expired
+  Claude credential trips a circuit breaker rather than burning the
+  whole retry budget.
 
 ## Non-goals (v1)
 
@@ -84,8 +96,46 @@ inventory:
   All coordinator-spawned containers inherit these unchanged.
 - **`update-branch` skill** — already exists in the user's
   `~/.claude/skills/update-branch/SKILL.md`. The coordinator does not
-  ship a new skill; it invokes the existing one headless via
-  `claude -p "/update-branch"`.
+  ship a new skill; the example v1 task type's prompt instructs the
+  agent to invoke it (and to leave the working tree at the desired
+  state without pushing — see *Trust model* below).
+
+## Trust model
+
+A hard boundary splits responsibility between the in-container agent
+and the host-side coordinator:
+
+- **Agent** mutates only the container's working tree under
+  `/home/agent/work/<repo>`. It rebases, restacks, edits files. It
+  never invokes `git push`, `gh pr ...`, or any other operation that
+  touches origin or GitHub state.
+- **Coordinator** owns every destructive remote operation: backup-ref
+  pushes, branch promotion (force-with-lease), ref deletion, control-
+  comment posts and edits, reactions. These are initiated host-side
+  via `docker exec` against the container's git workspace, after gate
+  checks (lock still held, PR not flipped to draft).
+
+This isn't a soft convention — the system is structured so the agent
+has no path to a destructive remote operation:
+
+- The agent's prompt (which the user configures) instructs it not to
+  push and to write its result to a known file. The example
+  `update-branch.md` prompt enforces this in plain text.
+- Even if the agent ignores that instruction, the coordinator's
+  `git push --force-with-lease=<head>:<pre_rebase_sha>` is the final
+  safety net — origin will reject any push that overwrites a SHA the
+  coordinator didn't record.
+
+The agent's only output channel for "what did you do" is a structured
+result file at `/home/agent/avm-task/result.json`, which the
+coordinator reads via `docker exec` after the agent process exits.
+The schema is fixed by the framework (see *Task type configuration*),
+not by individual task types.
+
+Cancellation falls out of this design rather than being added on top:
+SIGTERM at any container step means no result file is written, so the
+coordinator's promote step never runs. There is no half-promoted state
+to roll back.
 
 ## Architecture
 
@@ -93,46 +143,58 @@ inventory:
 ┌────────────────────────────────────────────────────────────────────┐
 │  HOST — avm-daemon (long-running)                                  │
 │                                                                    │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
-│  │ poll loop    │──▶ │ dispatcher   │──▶ │ container runner     │  │
-│  │ - discovery  │    │ - criteria   │    │ - avm create         │  │
-│  │   (gh search)│    │ - per-branch │    │ - avm exec claude    │  │
-│  │ - per-PR poll│    │   lock       │    │ - capture exit + log │  │
-│  └──────┬───────┘    └──────┬───────┘    │ - avm clean          │  │
-│         │                   │            └──────────┬───────────┘  │
-│         │                   │                       │              │
-│         ▼                   ▼                       ▼              │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐    │
+│  │ poll loop    │─▶│ dispatcher   │─▶│ task driver            │    │
+│  │ - discovery  │  │ - criteria   │  │ host-initiated phases  │    │
+│  │ - per-PR     │  │ - per-branch │  │ via docker exec:       │    │
+│  │   poll       │  │   lock       │  │  1. avm create         │    │
+│  └──────┬───────┘  └──────┬───────┘  │  2. clone + checkout   │    │
+│         │                 │          │  3. record pre-SHA     │    │
+│         │                 │          │  4. backup-ref push    │    │
+│         │                 │          │  5. claude -p <prompt> │    │
+│         │                 │          │  6. read result.json   │    │
+│         │                 │          │  7. gate re-check      │    │
+│         │                 │          │  8. force-with-lease   │    │
+│         │                 │          │     promote            │    │
+│         │                 │          │  9. avm clean          │    │
+│         ▼                 ▼          └────────────┬───────────┘    │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  SQLite state store (~/.avm/daemon/state.db)                 │  │
 │  │  watched_prs · tasks · branch_locks · backup_branches ·      │  │
 │  │  coordinator_state · containers · service_pids               │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│         ▲                   ▲                       ▲              │
-│         │                   │                       │              │
-│  ┌──────┴───────┐    ┌──────┴───────┐    ┌──────────┴───────────┐  │
-│  │ control      │    │ classifier   │    │ failure router       │  │
-│  │ comment mgr  │    │ - transient  │    │ - retry w/ backoff   │  │
-│  │ - post on    │    │ - needs-creds│    │ - trip breaker       │  │
-│  │   register   │    │ - needs-human│    │ - notify user        │  │
-│  │ - edit in    │    │ - done       │    └──────────────────────┘  │
-│  │   place      │    └──────────────┘                              │
-│  └──────────────┘                                                  │
-└────────────────────────────────────────────────────────────────────┘
-                                │ avm create / exec / clean
-                                ▼
-                    ┌──────────────────────────┐
-                    │  ephemeral avm container │
-                    │  (one per task)          │
-                    │  claude -p /update-branch│
-                    │  → exit code + log       │
-                    └──────────────────────────┘
-                                │ updates branch on
-                                ▼
-                       GitHub (origin remote)
-                       - PR head/base refs
-                       - control comment (state)
-                       - trigger comments + reactions
-                       - avm-backup/* refs
+│         ▲                 ▲                                        │
+│         │                 │                                        │
+│  ┌──────┴───────┐  ┌──────┴───────┐  ┌────────────────────────┐    │
+│  │ control      │  │ classifier   │  │ failure router +       │    │
+│  │ comment mgr  │  │ (built-in    │  │ circuit breaker +      │    │
+│  │              │  │  patterns)   │  │ daily sweep            │    │
+│  └──────────────┘  └──────────────┘  └────────────────────────┘    │
+└──────────────────────────────────────────────┬─────────────────────┘
+                                               │ all destructive
+                                               │ remote ops via
+                                               │ docker exec
+                                               ▼
+                ┌─────────────────────────────────────────────┐
+                │  ephemeral avm container                    │
+                │  ┌───────────────────────────────────────┐  │
+                │  │ workspace at /home/agent/work/<repo>  │  │
+                │  │   (agent edits here only — never      │  │
+                │  │    pushes; never touches origin)      │  │
+                │  └───────────────────────────────────────┘  │
+                │  ┌───────────────────────────────────────┐  │
+                │  │ result file                           │  │
+                │  │   /home/agent/avm-task/result.json    │  │
+                │  │   { status, head_sha, notes }         │  │
+                │  │   (agent writes; host reads)          │  │
+                │  └───────────────────────────────────────┘  │
+                └─────────────────────────────────────────────┘
+                                               │
+                                               ▼
+                                  GitHub (origin remote)
+                                  - PR head ref (promoted)
+                                  - avm-backup/* refs
+                                  - control comment + reactions
 ```
 
 The coordinator is a subsystem of the existing daemon, not a new
@@ -141,28 +203,114 @@ container state and the bridge already live; a sibling
 `avm-orchestrator` would duplicate the registry and create a second
 state file with its own consistency problems.
 
+The host never maintains a local git workspace of its own. The
+container's clone is the only one — the host orchestrates git
+operations against it via `docker exec`, never runs `git` locally.
+
 ## Components
+
+### Task type configuration
+
+The coordinator framework is task-type-agnostic. Task types are
+declared in `~/.avm/config.yaml`:
+
+```yaml
+coordinator:
+  enabled: true
+  allowlist: [marc]
+  task_types:
+    update-branch:
+      hotword: /avm update
+      auto_trigger: branch-behind-base   # also: ready-transition, none
+      timeout: 5m
+      prompt_file: prompts/update-branch.md
+      # OR (mutually exclusive with prompt_file):
+      # prompt: |
+      #   inline prompt text...
+```
+
+Fields:
+
+- `hotword` — the comment trigger for this task type. Must be unique
+  across configured task types.
+- `auto_trigger` — predicate evaluated during polling. v1 supports
+  `branch-behind-base`, `ready-transition`, and `none`.
+- `timeout` — wall-time cap on the agent step (step 5 in the task
+  driver). On timeout: SIGTERM the container; classify as
+  `needs-human`.
+- `prompt` — inline prompt text passed to `claude -p ...`.
+- `prompt_file` — path to a file containing the prompt. Resolved
+  relative to `~/.avm/` (e.g., `prompts/update-branch.md` →
+  `~/.avm/prompts/update-branch.md`); absolute paths also accepted.
+  Read fresh at each dispatch so prompt edits take effect on the
+  next task without daemon restart.
+- Exactly one of `prompt` or `prompt_file` must be set.
+
+**Frame contract — what every prompt must do.**
+
+The prompt is the user's primary control surface for what the agent
+does. The framework imposes only one contract on it: on completion,
+the agent must write a JSON object to
+`/home/agent/avm-task/result.json`:
+
+```json
+{
+  "status": "ok" | "skipped" | "failed",
+  "head_sha": "<git rev-parse HEAD>",
+  "notes": "human-readable summary"
+}
+```
+
+- `ok` — work performed; `head_sha` is the new tip the coordinator
+  should promote.
+- `skipped` — agent decided no work was needed; `head_sha` should
+  equal `pre_rebase_sha`. Coordinator records this and does not push.
+- `failed` — agent could not complete; `notes` explains why.
+  Coordinator marks the task `needs-human`.
+
+The prompt is also responsible for telling the agent NOT to push (see
+*Trust model*). The example `update-branch.md` prompt shipped under
+`examples/prompts/` enforces both halves of the contract in plain
+text.
+
+v1 ships:
+
+- The coordinator framework (poll, dispatch, task driver, classifier,
+  breaker, sweep, control-comment manager).
+- One example task type in `examples/config.yaml`: `update-branch`
+  with hotword `/avm update`, `auto_trigger: branch-behind-base`,
+  and `prompt_file: prompts/update-branch.md`.
+- One example prompt at `examples/prompts/update-branch.md` invoking
+  the existing `/update-branch` skill with the frame contract
+  appended.
+
+Adding `/avm address` in v2 is a config + prompt-file change — no
+daemon code.
 
 ### Trigger format
 
-A line in a PR comment matching the regex
-`^\s*/avm\s+(update)\s*$` (case-insensitive, single-word verb), with
-two exclusions:
+The set of recognised hotwords is derived from the configured task
+types' `hotword` fields. For each configured hotword, a comment line
+matching that exact string (case-insensitive, leading and trailing
+whitespace allowed) registers as a trigger for the associated task
+type.
+
+Two exclusions apply to all hotwords:
 
 - Lines whose first non-whitespace character is `>` (quoted reply
   text) are ignored.
 - Lines inside fenced code blocks (\`\`\` or `~~~`) are ignored.
 
 Authorization: the comment author must be the PR author or appear in
-the configured allowlist. v1 reads the allowlist from
-`~/.avm/config.yaml` under `coordinator.allowlist: [<gh-login>, ...]`.
-Comments from non-allowlisted users are silently ignored — no reaction,
-no log entry, to avoid leaking the coordinator's existence to drive-by
-contributors.
+the configured allowlist (`coordinator.allowlist: [<gh-login>, ...]`
+in `~/.avm/config.yaml`). Comments from non-allowlisted users are
+silently ignored — no reaction, no log entry, to avoid leaking the
+coordinator's existence to drive-by contributors.
 
-`/avm update` is the only verb in v1. The grammar leaves room for
-`address`, `cancel`, and arguments (`/avm update --onto develop`)
-in future versions.
+In v1 the only blessed example task type is `update-branch` with
+hotword `/avm update`, so the only hotword the example config
+recognises is that one. Adding a new hotword is a configuration
+change — no daemon code.
 
 ### Discovery and polling
 
@@ -196,15 +344,26 @@ that cycle on restart rather than skipping comments.
 
 ### Dispatch criteria
 
-When a trigger fires (hotword or ready transition), evaluate:
+A trigger is one of:
 
-- `needs-update-branch`: the PR's `mergeStateStatus` is `BEHIND` or
-  `DIRTY`, or `gh api repos/.../compare/<base>...<head>` reports
-  `behind_by > 0`.
+- An explicit hotword comment matched by the trigger parser.
+- A predicate evaluated during the per-PR poll. Built-in predicates
+  (v1):
+  - `branch-behind-base` — the PR's `mergeStateStatus` is `BEHIND`
+    or `DIRTY`, or `gh api repos/.../compare/<base>...<head>` reports
+    `behind_by > 0`.
+  - `ready-transition` — fires once on each draft → ready transition.
+  - `none` — no auto-trigger; only the explicit hotword.
 
-If the criterion is satisfied, a task is queued. If not, the control
-comment is updated to reflect "✅ idle (up to date)" and no container
-is spawned.
+Each task type's `auto_trigger` field selects which predicate (if any)
+runs during polling. Hotword triggers are always recognised regardless
+of `auto_trigger`.
+
+When a trigger fires, the dispatcher re-evaluates the task type's
+predicate (if any) at dispatch time so a fast race — predicate true
+at trigger, false by dispatch — doesn't queue an unneeded task. If
+the recheck is false, the control comment is updated to reflect
+"✅ idle (up to date)" and no container is spawned.
 
 ### Per-branch lock
 
@@ -217,51 +376,81 @@ A task cannot start if its branch is locked. Stale locks (held by a
 task whose container no longer exists) are reaped on daemon boot
 during reconciliation.
 
-### Container runner
+### Task driver
 
-For each dispatched task:
+For each dispatched task, the host orchestrates phases via
+`docker exec`. The container is a sandbox; the host is the
+conductor. No wrapper script runs as the container's main process —
+each phase is an explicit, host-initiated `docker exec`.
 
-1. Create an ephemeral container via the same `lib/session.ts` code
-   path used by `avm create`, with a deterministic name
-   (`avm-coord-<task-id-short>`) and a short-lived label so manual
-   inspection is possible.
-2. Inside the container, the runner:
-   - clones the target repo into `~/work/<repo>` (the existing
-     in-container `avm-repos` skill provides the symlink mount; the
-     coordinator drives it directly via the bridge's `GetRepo` RPC).
-   - checks out the PR's head branch.
-   - **Pushes a backup branch first** (see *Backup branches*).
-   - Runs `claude -p "/update-branch"` headless, capturing stdout +
-     stderr to `~/.avm/orchestrator/tasks/<task-id>/output.log`.
-3. On process exit, capture exit code, run the classifier, update the
-   task row, release the lock, and `avm clean` the container.
+```
+1. avm create avm-coord-<task-id-short>
+   (programmatic call to the same lib/session.ts code path used by
+   `avm create`. Deterministic container name; short-lived label
+   for manual inspection.)
 
-Cold-start latency per task is ~10–30s (container create + post-setup).
+2. docker exec <c> mkdir -p /home/agent/work /home/agent/avm-task
+
+3. docker exec <c> git clone <repo-url> /home/agent/work/<repo>
+   docker exec <c> git -C /home/agent/work/<repo> checkout <head-ref>
+
+4. Record pre_rebase_sha:
+   docker exec <c> git -C /home/agent/work/<repo> rev-parse HEAD
+   (Persisted in the task row before any further step.)
+
+5. Backup-ref push (host-initiated, from inside the container):
+   docker exec <c> git -C /home/agent/work/<repo> push origin \
+     HEAD:refs/heads/avm-backup/<head>/<unix-ts>
+   (Non-destructive — creates a new ref. Recorded in
+   `backup_branches` and the control comment.)
+
+6. Run the agent:
+   docker exec <c> claude -p "<resolved-prompt>" \
+     --dangerously-skip-permissions \
+     --output-format json
+   (Stdout + stderr captured to
+   ~/.avm/orchestrator/tasks/<task-id>/output.log. Resolved prompt
+   read fresh from the task type's `prompt` / `prompt_file` at
+   dispatch time. Wall-time bounded by `task_types.<n>.timeout`.)
+
+7. Read the result file:
+   docker exec <c> cat /home/agent/avm-task/result.json
+   (Parses { status, head_sha, notes }. Missing or malformed file →
+   status defaults to `failed`.)
+
+8. Re-check gates:
+   - branch lock still held by this task
+   - PR `isDraft` still false
+   (Origin SHA need not be re-checked — `--force-with-lease` does
+   that atomically in step 9.)
+
+9. If status == "ok":
+     docker exec <c> git -C /home/agent/work/<repo> push \
+       --force-with-lease=<head>:<pre_rebase_sha> \
+       origin HEAD:refs/heads/<head>
+   If status == "skipped": no push; record idle in control comment.
+   If status == "failed": no push; classifier escalates.
+
+10. avm clean <c>
+```
+
+Cold-start latency per task is ~10–30s (container create + clone).
 Acceptable for background work in v1; warm-pool optimization is
 deferred.
 
-### Headless `claude` invocation
+Cancellation between any two steps means the next step never runs.
+SIGTERM mid-step kills the in-flight `docker exec`; the container is
+torn down by `avm clean`. The promote in step 9 is a single host-
+initiated push gated on result-file presence — there is no partial
+state to undo.
 
-The runner invokes Claude Code in non-interactive mode:
-
-```
-claude -p "/update-branch" \
-  --dangerously-skip-permissions \
-  --output-format json
-```
-
-The skill is the existing `~/.claude/skills/update-branch/SKILL.md`,
-mounted into the container via the standard credentials mount. JSON
-output gives structured signals the classifier can pattern-match
-against.
-
-The skill is interactive-leaning by design (it inspects state and
-makes decisions). Headless invocation works for `update-branch`
-because its decision tree is mechanical — fetch, check base,
-rebase or restack, push. Skills with required human interaction
-(e.g., `address-review`'s "present analysis table and wait")
-are explicitly out of scope for v1; v2 work on `/avm address` will
-need a non-interactive mode for that skill.
+The agent is invoked headless via `claude -p`. The example v1 prompt
+invokes `/update-branch` (whose decision tree is mechanical: fetch,
+check base, rebase or restack, write result), with the no-push and
+result-file requirements appended. Skills with required human
+interaction (e.g., `address-review`'s "present analysis table and
+wait") will need either a coordinator-tailored variant or an upstream
+non-interactive mode before they can ship as a v2 task type.
 
 ### Failure classification
 
@@ -382,17 +571,16 @@ Per-PR poll detects `isDraft` change against
 
 ### Backup branches
 
-Before any history-rewriting operation in the container:
+Convention: `avm-backup/<original-branch>/<unix-ts>`. Pushed in step 5
+of the task driver, before the agent runs, as a host-initiated
+`docker exec` against the container's git workspace. The push is
+non-destructive (creates a new ref keyed by timestamp; no `--force`),
+so it carries no risk regardless of what the agent does next.
 
-```
-git push origin <head>:refs/heads/avm-backup/<head>/<unix-ts>
-```
-
-Push is to `origin` only (never the upstream PR remote, in
-fork-based workflows). The backup ref, source branch, pre-rebase SHA,
-creation timestamp, and owning task ID are recorded in the
-`backup_branches` table and appended to the control comment's YAML
-state block.
+Push is to `origin` only (never the upstream PR remote in fork-based
+workflows). The backup ref, source branch, pre-rebase SHA, creation
+timestamp, and owning task ID are recorded in the `backup_branches`
+table and the control comment's YAML state block.
 
 Cleanup is a separate daily sweep (see *Cleanup sweep* below). v1 has
 no automated restore — backups are for manual recovery only. The
@@ -582,11 +770,11 @@ New file `packages/avm/src/cli/commands/orchestrate.ts` wired into
   polling loops.
 - `packages/avm-daemon/src/orchestrator/dispatcher.ts` — criteria
   evaluation, lock acquisition, task creation.
-- `packages/avm-daemon/src/orchestrator/runner.ts` — container
-  lifecycle for a single task (create / exec headless claude /
-  capture / clean).
+- `packages/avm-daemon/src/orchestrator/task-driver.ts` — host-side
+  per-task orchestration (the docker-exec choreography in *Task
+  driver*).
 - `packages/avm-daemon/src/orchestrator/classifier.ts` — failure
-  classification.
+  classification (built-in patterns).
 - `packages/avm-daemon/src/orchestrator/control-comment.ts` —
   post / edit / parse the per-PR control comment.
 - `packages/avm-daemon/src/orchestrator/github.ts` — thin wrapper
@@ -598,6 +786,8 @@ New file `packages/avm/src/cli/commands/orchestrate.ts` wired into
   state machine and notification.
 - `packages/avm-daemon/src/orchestrator/sweep.ts` — daily cleanup of
   closed-PR backups.
+- `packages/avm-daemon/src/orchestrator/prompts.ts` — load prompts
+  from inline strings or files (resolution under `~/.avm/`).
 - `packages/avm-daemon/src/db/db.ts` — `node:sqlite` setup, WAL,
   migration runner.
 - `packages/avm-daemon/src/db/migrations/0001_init.sql` — full
@@ -605,6 +795,9 @@ New file `packages/avm/src/cli/commands/orchestrate.ts` wired into
 - `packages/avm-daemon/src/db/repos/*.ts` — one module per table.
 - `packages/avm/src/cli/commands/orchestrate.ts` — host CLI.
 - `proto/avm/host/v1/orchestrator.proto` — RPC definitions.
+- `examples/prompts/update-branch.md` — example v1 task prompt
+  (invokes `/update-branch` skill, instructs no-push, instructs
+  result-file write).
 
 **Modified:**
 
@@ -616,22 +809,28 @@ New file `packages/avm/src/cli/commands/orchestrate.ts` wired into
 - `packages/avm-daemon/src/registry.ts` — point at new state store.
 - `packages/avm/src/cli/avm.ts` — register `orchestrate` subcommand
   group.
-- `packages/shared/src/` — regenerate Connect client types for the new
-  service.
+- `packages/shared/src/` — regenerate Connect client types for the
+  new service.
 - `packages/avm/src/lib/config-file.ts` — add
-  `coordinator: { allowlist: string[] }` schema.
-- `examples/config.yaml` — show coordinator allowlist as commented-out
-  example.
+  `coordinator: { enabled, allowlist, task_types }` schema, with
+  per-task-type validation (mutually-exclusive prompt / prompt_file,
+  unique hotwords, known auto_trigger predicates).
+- `examples/config.yaml` — show full `coordinator` block including
+  one example `update-branch` task type referencing
+  `prompts/update-branch.md`.
 - `package.json` — `"engines": { "node": ">=22.5" }`.
-- `README.md` — new "PR coordinator" section covering opt-in, hotword,
-  draft semantics, backup convention, credential failure recovery.
+- `README.md` — new "PR coordinator" section covering opt-in,
+  hotword, draft semantics, backup convention, credential failure
+  recovery, and how to add a custom task type.
 
 **Untouched on purpose:**
 
 - `templates/vm-claude.md` — the in-container agent does not need to
   know about the coordinator; from inside the container, this looks
-  like any other invocation of the existing skill.
+  like any other invocation of the configured skill.
 - The `update-branch` skill itself.
+- No host-side git workspace — the host never runs `git` outside of
+  `docker exec` invocations against the container's clone.
 
 ## Error handling
 
@@ -652,10 +851,15 @@ control comment, never as RPC errors.
 
 Per CLAUDE.md, no automated tests. Manual end-to-end verification:
 
-1. Enable coordinator, post `/avm update` on a self-owned PR whose
-   base branch is ahead. Observe: 👀 reaction, control comment posted,
-   🚀 reaction, container created, branch rebased and pushed, ✅
-   reaction, control comment shows "done".
+1. Enable coordinator with the example `update-branch` task type
+   configured (hotword `/avm update`, `prompt_file:
+   prompts/update-branch.md`). Post `/avm update` on a self-owned PR
+   whose base branch is ahead. Observe: 👀 reaction, control comment
+   posted, 🚀 reaction, container created, agent rebases locally,
+   `result.json` written with `status: ok`, host promotes via
+   `git push --force-with-lease`, ✅ reaction, control comment shows
+   "done". Verify the agent itself never invoked `git push` (check
+   the container's bash history or the captured agent log).
 2. Backup branch present on origin matching the convention; recorded
    in control comment YAML.
 3. Mark PR draft mid-task. Observe: container killed within seconds,
@@ -727,3 +931,50 @@ Per CLAUDE.md, no automated tests. Manual end-to-end verification:
   wrong; a wrong auto-restore is worse than a missing one. Backups
   exist to make manual recovery cheap; v2 may add a guided
   `avm orchestrate restore <task-id>` if it proves needed.
+
+- **Letting the agent run `git push`.** Rejected. Even with a clear
+  prompt instruction not to push, the system would be one prompt
+  ignore away from a destructive remote operation racing with the
+  coordinator's draft-cancellation logic. Restricting the agent to
+  working-tree mutations and routing all pushes through host-
+  initiated `docker exec` makes the trust boundary structural rather
+  than conventional. `--force-with-lease` against the recorded
+  `pre_rebase_sha` is the final safety net.
+
+- **Container pushes to a staging ref; host fetches and promotes.**
+  Considered. Adds a round-trip (container → origin staging → host
+  mirror → origin head) and requires the host to maintain a bare git
+  mirror per repo. The simpler "host runs `git push` from inside the
+  container via `docker exec`" achieves the same trust boundary with
+  one push, no host-side git workspace, and visible primitives — the
+  user can debug a stuck task by running the same `docker exec`
+  commands manually.
+
+- **Host-side bare git mirror per repo.** Rejected as unnecessary
+  given the docker-exec model. A mirror would be useful only if the
+  host needed to run git operations independently of the container,
+  and v1 has no such need. If a future need arises, a reserved
+  internals folder under `~/.avm/orchestrator/` is the place — the
+  spec leaves this open without committing to it.
+
+- **Hardcoding `update-branch` into the daemon.** Rejected. The
+  trigger / dispatch / sandbox / push pattern generalises across
+  task types; baking one task type in would constrain the design and
+  force a binary change for every new automation. Configuration-
+  driven task types ship in v1 even though only one example is
+  validated, so future task types add no daemon code.
+
+- **Configurable failure-classifier patterns.** Considered. Per-task-
+  type regex lists with per-class actions would be coherent with the
+  task-type-as-config framing, but adds substantial YAML for marginal
+  gain — the built-in patterns are generic enough across task types.
+  Deferred; revisit if a v2 task type genuinely needs different
+  classification.
+
+- **Built-in `address-review` task type using the existing
+  `~/.claude/skills/address-review` skill.** Rejected for v1. The
+  existing skill has interactive HARD-GATEs ("present analysis table
+  and wait for input") that don't run cleanly headless. A v2 task
+  type for address-review will need either a coordinator-tailored
+  skill variant or a non-interactive mode in the upstream skill —
+  out of scope here.
