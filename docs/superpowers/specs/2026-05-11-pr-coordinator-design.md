@@ -543,19 +543,25 @@ canonical).
 
 ### Reactions on trigger comments
 
-For each hotword-triggered task, react on the trigger comment with the
-current status:
+GitHub's reactions API supports a fixed set of emoji (`+1`, `-1`,
+`laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`). Only two
+map cleanly to coordinator-meaningful states:
 
-| Reaction | Meaning |
-|---|---|
-| 👀 | seen, queued |
-| 🚀 | dispatched, container running |
-| ✅ | done |
-| ❌ | failed (see control comment) |
-| 🚫 | refused (auth, locked, draft, conflict) |
+| Reaction | API content | Meaning |
+|---|---|---|
+| 👀 | `eyes` | seen, queued |
+| 🚀 | `rocket` | dispatched, container running |
 
-Add reactions cumulatively; never remove. Reactions are per-comment
-ack; the rolling status lives in the control comment.
+Outcomes (done, failed, refused, idle) do *not* get reactions — they
+live in the per-PR control comment's status line and activity log,
+which is already the durable, scrollable record. Reactions are an
+"in-progress" signal on the trigger comment; everything terminal is
+in the control comment.
+
+Add reactions cumulatively; never remove. A trigger comment that
+ends up refused (e.g., draft PR) gets no reaction at all — the
+refusal is logged as an entry in the control comment's activity
+section instead.
 
 ### Draft / ready transitions
 
@@ -660,6 +666,8 @@ CREATE TABLE watched_prs (
   last_seen_state TEXT,           -- 'ready' | 'draft'
   last_polled_at TEXT,
   registered_at TEXT NOT NULL,
+  last_failure_class TEXT,        -- NULL when last task succeeded; gates 'stuck' branches
+  last_failure_pre_sha TEXT,      -- pre_rebase_sha that produced needs-human; dispatch skips if head still == this
   PRIMARY KEY (repo_full_name, pr_number)
 );
 
@@ -744,13 +752,17 @@ service OrchestratorService {
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
   rpc Resume(ResumeRequest) returns (ResumeResponse);
   rpc Reclassify(ReclassifyRequest) returns (ReclassifyResponse);
+  rpc Reload(ReloadRequest) returns (ReloadResponse);
 }
 ```
 
-Status returns: enabled flag, breaker state, count of watched PRs,
-count of running tasks, last poll timestamp. ListTasks supports
-filtering by status / PR / branch and returns recent tasks with their
-log paths.
+Status returns: enabled flag, breaker state, max_concurrent_tasks,
+count of watched PRs, count of running tasks, last poll timestamp.
+ListTasks supports filtering by status / PR / branch and returns
+recent tasks with their log paths. Reload re-reads `~/.avm/config.yaml`
+(triggered by `avm orchestrate reload`); the poll loop picks up the
+new config on the next cycle, and the `Disable` RPC also stops the
+poll loop via the same Reload path.
 
 ## CLI surface
 

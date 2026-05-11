@@ -2,10 +2,10 @@
 
 Spec: docs/superpowers/specs/2026-05-11-pr-coordinator-design.md
 
-Seven sequential tasks, one PR with one commit per task. Each task is
-independently runnable end-to-end against the existing avm
+Eight sequential tasks, one PR with one commit per task. Each task
+is independently runnable end-to-end against the existing avm
 installation. The PR is opened draft on Task 1's commit and marked
-ready after Task 7 per the repo's `auto-ready` PR mode.
+ready after Task 8 per the repo's `auto-ready` PR mode.
 
 ## Task 1: SQLite scaffolding and StateStore migration
 
@@ -178,10 +178,11 @@ purely on `coordinator_state` and `tasks` repo state, and add the
 task execution are still absent at the end of this task — `enable`
 flips a flag, `status` shows what's stored, that's it.
 
-### Scope (not covered)
-
-No polling. No control comment posts. No task dispatch. `Reload` is
-a stub that returns success without doing anything yet.
+Not covered: no polling, no control comment posts, no task dispatch.
+`Reload` is a stub returning success without doing anything yet —
+Task 5 fills it in. `Disable` likewise only flips the state flag;
+the active poll-loop stop semantics arrive in Task 5 alongside the
+poll loop itself.
 
 ### Approach
 
@@ -270,11 +271,10 @@ task driver can call them as already-working primitives.
   - `editComment(repoFullName, commentId, body) → IssueComment` —
     `gh api -X PATCH .../issues/comments/<id>`.
   - `addReaction(repoFullName, commentId, content) → void` —
-    `gh api -X POST .../issues/comments/<id>/reactions`. Content
-    is one of `eyes`, `rocket`, `+1` (mapped to ✅ visually),
-    `-1` (mapped to ❌), `confused` (mapped to 🚫). Spec uses
-    emoji labels; this function takes the emoji label and maps to
-    the GitHub API content string.
+    `gh api -X POST .../issues/comments/<id>/reactions`. Only two
+    content values: `'eyes'` (👀 — seen/queued) and `'rocket'`
+    (🚀 — running). Outcomes and refusals do not get reactions —
+    they live in the control comment per spec.
   - `compareBase(repoFullName, base, head) → { behindBy: number,
     aheadBy: number }` — `gh api repos/.../compare/<base>...<head>`.
   - `deleteRef(repoFullName, ref) → void` — `gh api -X DELETE
@@ -356,22 +356,30 @@ queued tasks actually run.
     re-evaluation/control-comment-status edit).
 - `orchestrator/dispatcher.ts` exports `dispatchTrigger(trigger,
   pr, taskType) → 'queued' | 'refused' | 'idle'`:
-  - If `pr.isDraft`: refuse; emit 🚫 reaction + control-comment
-    "trigger ignored: PR is draft" entry; return `'refused'`.
+  - Check stuck-SHA gate: if `watched_prs.last_failure_class =
+    'needs-human'` and the PR's current head SHA equals
+    `watched_prs.last_failure_pre_sha`, refuse with control-comment
+    activity entry `"trigger ignored: branch stuck at <sha>
+    pending human action"`; return `'refused'`. (Stuck state
+    clears automatically when the head SHA advances.)
+  - If `pr.isDraft`: refuse; append `"trigger ignored: PR is draft"`
+    to the control comment activity log (no reaction — outcomes
+    aren't reactions per spec); return `'refused'`.
   - Acquire per-branch lock via `branch_locks` (atomic
-    `INSERT OR FAIL`). If already locked: refuse.
+    `INSERT OR FAIL`). If already locked: refuse with control-
+    comment activity entry naming the holding task id.
   - Evaluate the task type's `auto_trigger` predicate one more
     time at dispatch (so a fast race doesn't queue an unneeded
     task). For `branch-behind-base`, call
     `compareBase(...).behindBy > 0`. For hotword triggers,
     predicate check is skipped (the hotword is the user's
     explicit ask).
-  - If predicate false: release lock; control comment "✅ idle (up
-    to date)"; return `'idle'`.
+  - If predicate false: release lock; control comment status
+    "✅ idle (up to date)"; return `'idle'`.
   - Insert a task row with `status='queued'`,
     `trigger_kind='hotword' | 'ready-transition'`,
     `task_type=<name>`, `pre_rebase_sha=NULL` (filled by task
-    driver later). Emit 👀 reaction. Log
+    driver later). Emit 👀 reaction on the trigger comment. Log
     `daemon: would dispatch task <id> for <repo>#<pr>` (Task 6
     replaces this log with the actual driver invocation).
 - `orchestrator/control-comment.ts`:
@@ -391,7 +399,12 @@ queued tasks actually run.
   the HTTP server is listening. Register a shutdown hook so SIGTERM
   awaits `stop()` before exiting.
 - `Reload` RPC re-reads config and (if `coordinator.enabled`
-  changed) starts or stops the poll loop.
+  changed) starts or stops the poll loop. `Disable` RPC now also
+  triggers this stop behavior via a shared `applyConfig()` helper
+  — flipping the enabled flag in SQLite and then calling
+  `applyConfig()` to bring the poll loop in line. In-flight tasks
+  finish naturally (the poll loop stop only stops *future* poll
+  cycles; running task drivers run to completion).
 
 ### Files
 
@@ -463,6 +476,13 @@ moves on, but does not yet trip global polling.
   numbered flow exactly. Each `docker exec` is a separate `$\`...\``
   invocation; multi-line commands use the `$({ input: cmd })\`docker
   exec -i <c> bash -l\`` pattern per CLAUDE.md.
+- The body of `runTask` is wrapped in a retry loop for transient
+  failures: up to two re-attempts (3 total) with exponential
+  backoff (15s, 60s). Retry state is in-memory only — a daemon
+  restart mid-retry resets the count, and boot reconciliation
+  (Task 8) re-queues from scratch. Retry triggers only on
+  `failure_class='transient'`; other classes exit the loop and
+  proceed to final classification.
 - Step 1 (`avm create`): import `getDockerMountArgs`,
   `registerContainer`, `applyPostCreationSetup` from
   `packages/avm/src/lib/session.ts`. Spawn the container with
@@ -501,7 +521,18 @@ moves on, but does not yet trip global polling.
   `unregisterContainer` + `docker rm -v` runs even on exceptions.
 - Throughout: update `tasks.status` at each phase boundary
   (`running` after step 1, `done`/`failed`/etc. after step 9).
-  Emit reactions: 🚀 on step 6 entry, ✅ / ❌ at completion.
+  Emit only the `rocket` reaction on step 6 entry (running) —
+  outcomes go to the control comment status line + activity log,
+  not reactions.
+- On final classification, update the control comment's status
+  line and append an activity entry naming the outcome:
+  `"✅ done"`, `"❌ failed (transient, max retries)"`,
+  `"❌ failed (needs-credentials)"`, etc.
+- On `failure_class='needs-human'`: persist `last_failure_class`
+  and `last_failure_pre_sha` to the watched_prs row so the
+  dispatcher's stuck-SHA gate can refuse subsequent triggers until
+  the head SHA advances. On any successful task (status='done'),
+  clear both columns back to NULL.
 - `orchestrator/classifier.ts` exports `classify({ exitCode,
   outputLog, stage }) → FailureClass`. Built-in patterns from the
   spec:
@@ -521,9 +552,12 @@ moves on, but does not yet trip global polling.
 - packages/avm-daemon/src/orchestrator/task-driver.ts (new)
 - packages/avm-daemon/src/orchestrator/classifier.ts (new)
 - packages/avm-daemon/src/orchestrator/dispatcher.ts (modify —
-  invoke task driver instead of logging; install semaphore)
+  invoke task driver instead of logging; install semaphore;
+  add stuck-SHA gate)
 - packages/avm-daemon/src/db/repos/tasks.ts (modify — finish-task
   helpers: setRunning, setDone, setFailed)
+- packages/avm-daemon/src/db/repos/watched-prs.ts (modify —
+  setLastFailure / clearLastFailure helpers)
 - packages/avm-daemon/src/db/repos/backup-branches.ts (modify —
   fill in stubs)
 
@@ -531,26 +565,43 @@ moves on, but does not yet trip global polling.
 
 - On a self-owned PR whose base branch is one or more commits
   ahead of HEAD, post `/avm update`. Within ~90s observe end-to-end:
-  - 👀 → 🚀 → ✅ reactions on the trigger comment.
+  - 👀 reaction (queued), then 🚀 reaction (running).
   - Container `avm-coord-<task-id-short>` visible in `docker ps`
     during the run; gone after completion.
   - The PR's head branch on origin shows a fresh commit graph
     rebased on its base.
   - A new ref `avm-backup/<head>/<unix-ts>` on origin pointing at
     the pre-rebase SHA.
-  - Control comment YAML state shows `last_task.status: done` and
-    the backup recorded in `backups[]`.
+  - Control comment status flips from "🔄 running" to "✅ done"
+    and activity log entry confirms the outcome. The backup is
+    recorded in the YAML state's `backups[]`.
 - Inspect the captured agent log
   (`~/.avm/orchestrator/tasks/<id>/output.log`): the agent never
   ran `git push`. The daemon's own log shows the promote being
   invoked by the task driver.
 - When the agent writes `status='skipped'` (or
   `head_sha==pre_rebase_sha`): no promote happens; control comment
-  shows "✅ idle (up to date)"; no new commit on origin.
+  status shows "✅ idle (up to date)"; no new commit on origin.
 - Manually push something to the head branch from another shell
   during the agent's run: `--force-with-lease` rejects the
-  promote; task is marked `failed` with `failure_class='needs-human'`;
-  ❌ reaction; control comment surfaces the rejection.
+  promote; task is marked `failed` with
+  `failure_class='needs-human'`; control comment status shows
+  "❌ failed (needs-human)" and activity entry surfaces the
+  rejection. `watched_prs.last_failure_class` and
+  `last_failure_pre_sha` populated.
+- Re-post `/avm update` on the same PR (head SHA unchanged): the
+  dispatcher's stuck-SHA gate refuses; no task queued; control
+  comment activity log shows "trigger ignored: branch stuck at
+  \<sha\> pending human action". Resolve manually by advancing
+  the head SHA (e.g., push any commit), then re-trigger — the
+  stuck record clears, task runs normally.
+- Simulate a transient failure twice in a row (e.g., temporarily
+  break network), then succeed: the task retries with backoff,
+  ultimately succeeds; final outcome is ✅ done. Captured agent
+  log shows three invocation attempts.
+- Simulate three transient failures: task is marked `failed`
+  with `failure_class='transient'` (max retries reached); control
+  comment surfaces "❌ failed (transient, max retries)".
 - With `max_concurrent_tasks: 2`, trigger three eligible PRs in
   quick succession: two run concurrently (visible in `docker ps`);
   the third stays queued (👀 only) until one of the first two
@@ -559,140 +610,255 @@ moves on, but does not yet trip global polling.
   behavior: only one container at a time even with multiple queued
   tasks.
 
-## Task 7: Draft/ready cancellation, circuit breaker, sweep, boot reconciliation, README
+## Task 7: Draft/ready cancellation and circuit breaker
 
 - [ ] Status
 
 ### Scope
 
-Fill in the four remaining behaviors that cross multiple modules,
-plus the user-facing README. After this task the v1 feature is
-complete and the PR is ready for review.
+Two cross-cutting behaviors: cancellation of in-flight tasks when a
+watched PR flips to draft (with automatic re-queueing on flip back
+to ready), and the credential-failure circuit breaker that pauses
+all polling on `needs-credentials` outcomes. Both extend modules
+introduced in earlier tasks rather than adding wholly new surfaces.
 
 ### Approach
 
-- **Draft → ready/draft transitions** (modify `poll.ts` and
+- **Draft → draft transitions** (modify `poll.ts` and
   `task-driver.ts`):
   - On per-PR poll, compare current `getPR().isDraft` to
-    `watched_prs.last_seen_state`. If transitioning to draft:
+    `watched_prs.last_seen_state`. If transitioning ready → draft:
     - Find running tasks for this PR. For each, write
       `tasks.status='cancelled'` with `notes='pr-flipped-to-draft'`
-      *before* sending the kill signal.
-    - SIGTERM the container; SIGKILL after 10s.
-    - Release the branch lock.
-    - Update control comment: "⏸ paused (draft)".
-  - On transitioning to ready: re-evaluate dispatch criteria for
-    each configured task type with
-    `auto_trigger='ready-transition'`. If predicate true and no
-    queued/running task exists for this branch, enqueue with
-    `trigger_kind='ready-transition'`.
-  - The task driver's step-by-step status updates already give the
-    cancellation handler a stable invariant: at any boundary,
-    `tasks.status` reflects what's actually happening.
+      to SQLite *before* sending the kill signal so a crash mid-
+      cancel doesn't leave a phantom running task.
+    - SIGTERM the container via `docker kill --signal=TERM <c>`;
+      after a 10s grace, SIGKILL via `docker kill <c>`.
+    - Release the branch lock (`DELETE FROM branch_locks WHERE
+      branch_key = ...`).
+    - Append `"⏸ paused (draft)"` to the control comment status
+      line and add an activity entry naming the cancelled task id.
+  - On transitioning draft → ready: re-evaluate dispatch criteria
+    for each configured task type whose `auto_trigger =
+    'ready-transition'`. If predicate true *and* no queued or
+    running task exists for this branch, enqueue with
+    `trigger_kind='ready-transition'`. Set status back to ready
+    in the control comment status line.
+  - Update `watched_prs.last_seen_state` after handling so the
+    transition isn't re-detected.
+  - The task driver's step-by-step status updates from Task 6
+    give the cancellation handler a stable invariant: at any
+    boundary, `tasks.status` reflects what's actually happening.
 - **Circuit breaker** (`orchestrator/breaker.ts`):
-  - Exports `tripBreaker(reason: string)` and `isOpen() → bool`.
+  - Exports `tripBreaker(reason: string): void` and `isOpen():
+    boolean`.
   - `tripBreaker` updates `coordinator_state.circuit_breaker_state
-    = 'open'`, `circuit_breaker_tripped_at = now`,
-    `circuit_breaker_reason = reason`; calls
+    = 'open'`, sets `circuit_breaker_tripped_at = now`,
+    `circuit_breaker_reason = reason`. Calls
     `dispatchNotification(...)` from
     `packages/avm-daemon/src/notifications.ts` directly (no bridge
-    round-trip); logs.
-  - Wire `tripBreaker(failureClass)` into the task driver's
-    classifier path: on `failure_class='needs-credentials'`, trip
-    the breaker.
+    round-trip) with kind=`NEEDS_ATTENTION` and a message naming
+    the reason. Logs the trip event.
+  - `isOpen` reads `coordinator_state.circuit_breaker_state`.
+  - Wire `tripBreaker('needs-credentials')` into the task driver's
+    final-classification path (Task 6): when the classifier
+    returns `'needs-credentials'`, also trip the breaker before
+    returning.
   - `poll.ts` checks `breaker.isOpen()` at the top of each cycle
-    and skips polling if open. (Existing poll-loop ticking
-    continues — just no work done.)
-  - The `Resume` RPC (already implemented in Task 3) clears the
-    breaker; next poll cycle resumes work and re-evaluates all
-    watched PRs.
-- **Daily sweep** (`orchestrator/sweep.ts`):
-  - 24-hour `setInterval` started from `main.ts` when the
-    coordinator is enabled.
-  - For each row in `watched_prs`, fetch `getPR(...).state`. If
-    `closed`:
-    - Read the control comment's YAML state block; for each
-      backup ref, call `deleteRef(repo, ref)`. Tolerate already-
-      gone refs (`404`).
-    - Append a final entry to the control comment:
-      "🏁 PR closed, backups cleaned" with the deleted refs.
-    - Delete the row from `watched_prs` (cascades to
-      `branch_locks`, `backup_branches` via FK).
-  - Belt-and-braces fallback: independently of the per-PR scan,
-    list all `avm-backup/*` refs across watched repos older than
-    30 days (parse the unix-ts suffix); delete them. Idempotent.
-- **Boot reconciliation** (modify `main.ts`):
-  - Runs once before the poll loop starts.
-  - Find all `tasks` rows with `status='running'`. For each:
-    - Check if the named container is still in Docker. If yes,
-      something else is wrong (impossible state) — log loudly and
-      mark `status='failed-orphaned'`. If no:
-      - Mark `status='failed-orphaned'`.
-      - Release the corresponding `branch_locks` row.
-      - If `tasks.auto_retriggered = 0`: re-evaluate the task
-        type's dispatch criteria for this PR. If still applicable
-        (e.g., `branch-behind-base` still true), enqueue a fresh
-        task with `trigger_kind='boot-recovery'` and
-        `auto_retriggered=1`. Append "♻️ boot recovery: queued
-        replacement task <new id>" to the control comment.
-      - If `tasks.auto_retriggered = 1`: do NOT auto-retrigger.
-        Append "❌ boot recovery aborted (already retriggered
-        once)" to the control comment; surface
-        `failure_class='needs-human'`.
-- **README** (`README.md`):
-  - New top-level section "## PR coordinator" placed after the
-    existing usage sections.
-  - Subsections: "Enabling", "Trigger comments", "Draft pauses
-    automation", "Backup branches", "Credential failure recovery",
-    "Adding a custom task type", "Reference: spec".
-  - "Adding a custom task type" walks through editing
-    `~/.avm/config.yaml` and dropping a prompt file under
-    `~/.avm/prompts/`.
+    and skips polling if open. (The interval keeps ticking — just
+    no work done — so the next `Resume` is picked up immediately.)
+  - The `Resume` RPC (from Task 3) clears the breaker
+    (`circuit_breaker_state='closed'`,
+    `tripped_at=NULL`, `reason=NULL`); next poll cycle resumes
+    work and re-evaluates all watched PRs.
 
 ### Files
 
 - packages/avm-daemon/src/orchestrator/breaker.ts (new)
-- packages/avm-daemon/src/orchestrator/sweep.ts (new)
 - packages/avm-daemon/src/orchestrator/poll.ts (modify — draft/ready
-  transitions, breaker check)
+  transition detection + handling, breaker.isOpen() check at top
+  of each cycle)
 - packages/avm-daemon/src/orchestrator/task-driver.ts (modify —
-  trip breaker on needs-credentials; honor cancellation flag)
+  trip breaker on needs-credentials classification)
 - packages/avm-daemon/src/orchestrator/dispatcher.ts (modify —
   enqueue ready-transition tasks)
-- packages/avm-daemon/src/main.ts (modify — boot reconciliation,
-  sweep timer)
-- README.md (modify)
+- packages/avm-daemon/src/orchestrator/control-comment.ts (modify —
+  status-line "paused (draft)" / "ready" updates)
 
 ### Done criteria
 
 - Trigger a long-running update-branch task. Within a few seconds
-  of starting (while the agent is running), mark the PR draft from
-  GitHub UI. Within 15s observe: container killed; tasks row shows
-  `status='cancelled'`; control comment shows ⏸ paused (draft).
-  Re-mark the PR ready: a new task is queued
-  (`trigger_kind='ready-transition'`) and runs to completion.
+  of starting (while the agent is running), mark the PR draft via
+  GitHub UI. Within 15s observe: container killed; `tasks` row
+  shows `status='cancelled'` with `notes='pr-flipped-to-draft'`;
+  branch lock released; control comment status line shows
+  "⏸ paused (draft)" with an activity entry naming the cancelled
+  task.
+- Re-mark the PR ready while its base branch is still ahead: a
+  new task is queued with `trigger_kind='ready-transition'` and
+  runs to completion. Control comment status line returns to
+  normal ("✅ done" or "🔄 running" depending on timing).
 - Temporarily invalidate Claude credentials (e.g., move
   `~/.avm/system/claude.json` aside). Trigger update-branch. The
-  task fails with `failure_class='needs-credentials'`. Observe:
-  breaker tripped (coordinator_state shows
-  `circuit_breaker_state='open'`); desktop notification fires;
-  next poll cycle does no work. Restore credentials, run
-  `avm orchestrate resume`. The next poll cycle re-evaluates and
-  dispatches the still-needed update-branch task.
-- Close a PR that has at least one backup ref. Force the sweep
-  timer to fire (manually call its function via a one-off
-  daemon-internal trigger, or restart and wait 24h — implementer's
-  choice for verification). Observe: all `avm-backup/*` refs for
-  that PR deleted from origin; watched_prs row gone; control
-  comment appended with the closure entry.
+  task fails; classifier returns `needs-credentials`; observe:
+  - `coordinator_state.circuit_breaker_state = 'open'`,
+    `circuit_breaker_reason = 'needs-credentials'`.
+  - Desktop notification fires.
+  - `avm orchestrate status` shows breaker open.
+  - Daemon log shows next poll cycles skipping work.
+- Restore credentials, run `avm orchestrate resume`. Breaker
+  clears (`circuit_breaker_state='closed'`); next poll cycle
+  re-evaluates watched PRs; the still-applicable update-branch
+  task dispatches and completes successfully.
+
+## Task 8: Daily sweep, boot reconciliation, README
+
+- [ ] Status
+
+### Scope
+
+The remaining housekeeping behaviors plus user-facing documentation.
+After this task the v1 feature is complete and the PR is ready for
+review: the daemon cleans up backup refs from closed PRs, recovers
+gracefully from mid-task restarts (including re-syncing control
+comments from GitHub as the source of truth), and the README has
+a complete "PR coordinator" walkthrough.
+
+### Approach
+
+- **Daily sweep** (`orchestrator/sweep.ts`):
+  - 24-hour `setInterval` started from `main.ts` when the
+    coordinator is enabled (alongside the poll loop). Runs the
+    sweep function once on each fire and also once at startup
+    (with a short delay) so a daemon restart after a long
+    downtime catches up quickly.
+  - The sweep function:
+    - For each row in `watched_prs`, fetch `getPR(...).state`.
+      If `'closed'`:
+      - Read the control comment via
+        `findControlComment(pr)`. Parse its YAML state block.
+      - For each `backups[].ref` listed, call
+        `deleteRef(repo, ref)`. Tolerate 404 responses
+        (already-deleted refs).
+      - Append a final activity entry to the control comment
+        `"🏁 PR closed; cleaned backups: <list>"`.
+      - Delete the row from `watched_prs` (cascades to
+        `branch_locks`, `backup_branches` via FK).
+    - Belt-and-braces fallback: list all `avm-backup/*` refs
+      across watched repos via `gh api .../matching-refs/heads/avm-backup`.
+      For each ref whose name's unix-ts suffix is older than 30
+      days, call `deleteRef`. Idempotent.
+- **Boot reconciliation — orphaned tasks** (modify `main.ts`):
+  - Runs once *before* the poll loop starts.
+  - Find all `tasks` rows with `status='running'`. For each:
+    - Check via `docker inspect <container_name>` (zx) whether
+      the named container is still alive. If yes (unexpected —
+      means daemon crashed but container survived), log a
+      warning and mark `status='failed-orphaned'`; do not auto-
+      retrigger (the docker container is in unknown state).
+    - If no:
+      - Mark `status='failed-orphaned'`.
+      - Release the corresponding `branch_locks` row.
+      - If `tasks.auto_retriggered = 0`: re-evaluate the task
+        type's dispatch criteria for this PR (using the same
+        helper the dispatcher uses). If still applicable,
+        enqueue a fresh task with
+        `trigger_kind='boot-recovery'` and `auto_retriggered=1`.
+        Append `"♻️ boot recovery: queued replacement task
+        <new id>"` to the control comment.
+      - If `tasks.auto_retriggered = 1`: do NOT auto-retrigger.
+        Append `"❌ boot recovery aborted (already retriggered
+        once)"` to the control comment; persist
+        `last_failure_class='needs-human'` to the watched_prs row
+        so the stuck-SHA gate (Task 6) refuses further triggers
+        until the head SHA advances.
+- **Boot reconciliation — control comment as source of truth**
+  (also in `main.ts`, after the orphaned-tasks pass):
+  - For each `watched_prs` row with a known `control_comment_id`,
+    fetch the comment from GitHub and parse its YAML state block.
+    Reconcile SQLite against it:
+    - `last_seen_state` — adopt from YAML if present.
+    - `last_failure_class` / `last_failure_pre_sha` — adopt from
+      YAML's `last_task` block when present.
+    - `backups[]` — for each ref listed in YAML but missing from
+      the SQLite `backup_branches` table, insert a row (with
+      `task_id` of the most recent task on this branch, or NULL
+      if no match). For refs in SQLite but missing from YAML,
+      leave them (the YAML is the user-visible truth; orphaned
+      SQLite rows are harmless and the sweep's 30-day fallback
+      will eventually clean any refs).
+  - If a watched_prs row has `control_comment_id` but the comment
+    has been deleted on GitHub (404), log a warning and unset
+    `control_comment_id` so the next trigger posts a new comment.
+- **README** (`README.md`):
+  - New top-level section "## PR coordinator" placed after the
+    existing usage sections.
+  - Subsections in this order:
+    1. "Enabling" — config block, `avm orchestrate enable`, what
+       gets watched (search-by-commenter behavior).
+    2. "Trigger comments" — `/avm <verb>` syntax, author
+       allowlist, quoted-line / code-block exemption.
+    3. "Draft pauses automation" — flip to draft cancels; flip
+       to ready re-queues if applicable.
+    4. "Backup branches" — `avm-backup/<branch>/<unix-ts>`
+       convention; cleaned on PR close; v1 has no automated
+       restore.
+    5. "Credential failure recovery" — breaker, desktop
+       notification, `avm orchestrate resume`.
+    6. "Concurrency" — `max_concurrent_tasks`, per-branch lock.
+    7. "Adding a custom task type" — walk through editing
+       `~/.avm/config.yaml` and dropping a prompt file under
+       `~/.avm/prompts/`, with the contract requirements (no push,
+       write result.json).
+    8. "Reference: spec" — link to
+       `docs/superpowers/specs/2026-05-11-pr-coordinator-design.md`.
+
+### Files
+
+- packages/avm-daemon/src/orchestrator/sweep.ts (new)
+- packages/avm-daemon/src/main.ts (modify — boot reconciliation
+  for orphans + control comments; sweep timer)
+- packages/avm-daemon/src/orchestrator/control-comment.ts (modify —
+  parse-and-reconcile helper for boot path)
+- packages/avm-daemon/src/db/repos/watched-prs.ts (modify —
+  reconcile helpers)
+- README.md (modify)
+
+### Done criteria
+
+- Close a PR that has at least one `avm-backup/*` ref recorded.
+  Force the sweep function to run (call it directly from a
+  one-off `node --eval` or temporarily reduce the interval to
+  60s for the verification run). Observe:
+  - All `avm-backup/*` refs for that PR are deleted from origin.
+  - `watched_prs` row removed (verify via `sqlite3`).
+  - Control comment appended with "🏁 PR closed; cleaned
+    backups: ...".
+- Manually push an `avm-backup/<branch>/<unix-ts>` ref with a
+  unix-ts older than 30 days. Force the sweep. Observe the ref
+  deleted.
 - Start an update-branch task. While running, `avm daemon
-  restart`. On next boot, observe: orphaned task marked
-  `failed-orphaned`; lock released; if base branch is still ahead,
-  a new task is auto-queued (`trigger_kind='boot-recovery'`,
-  `auto_retriggered=1`) and runs to completion. Repeat the
-  restart-mid-task — the second orphaned task is reaped without a
-  third auto-retrigger; control comment shows the "boot recovery
-  aborted" notice.
+  restart`. On next boot, observe:
+  - Orphaned task marked `status='failed-orphaned'`.
+  - Branch lock released (`branch_locks` row gone).
+  - If base branch is still ahead, a new task is auto-queued
+    (`trigger_kind='boot-recovery'`, `auto_retriggered=1`) and
+    runs to completion.
+  - Control comment activity log shows "♻️ boot recovery: queued
+    replacement task <id>".
+- Repeat the restart-mid-task on the auto-retriggered task. On
+  next boot, observe:
+  - Second orphaned task reaped, no third auto-retrigger.
+  - Control comment activity log shows "❌ boot recovery aborted
+    (already retriggered once)".
+  - `watched_prs.last_failure_class='needs-human'` and
+    `last_failure_pre_sha=<current head>`; next manual trigger
+    is refused by the stuck-SHA gate.
+- Manually edit a control comment's YAML state block (e.g.,
+  change `last_seen_state: draft`). Restart the daemon. On boot,
+  observe that the SQLite `watched_prs.last_seen_state` is
+  updated to match (GitHub wins).
 - README's "PR coordinator" section reads as a standalone
   introduction a user could follow from scratch: enable, write a
-  task type, trigger, recover from credential failure.
+  task type, trigger, recover from credential failure, add a
+  custom task type.
