@@ -990,7 +990,13 @@ Update all user-facing docs to match the new behaviour: README's
 First-Time Setup, Host Data Layout, and Customizing sections;
 `skills/avm/SKILL.md` first-time-setup and in-container layout sections;
 `templates/agents.md` body (post-rename in Task 2); any CLAUDE.md
-references in `templates/skills/avm-*/SKILL.md`.
+references in `templates/skills/avm-*/SKILL.md`. Also adds a new
+`docs/migration-to-agent-harness-decoupling.md` runbook written for a
+host-side Claude agent to execute on behalf of the user, walking
+through the config additions needed after the upgrade — automatic
+file moves happen via `migrateLegacyLayout`, but the `config.yaml`
+additions still need a human-or-agent edit, and the host skill points
+at this runbook when it sees the migration hint.
 
 ### Approach
 
@@ -1129,11 +1135,144 @@ edits expected. If the implementer's `grep -ri "CLAUDE.md"
 templates/skills/` turns up new references (added since the plan was
 written), update them to AGENTS.md or the generic phrasing.
 
+**`docs/migration-to-agent-harness-decoupling.md`** (new file):
+
+Create a runbook scoped to one-time migration from the Claude-baked-in
+avm to the agnostic avm. The audience is a host-side Claude agent — the
+doc should be specific enough that the agent can execute the steps
+without further design work, asking the user only for product
+decisions (e.g. "do you still want desktop integration?").
+
+Outline:
+
+```markdown
+# Migration: Claude-baked-in avm → agent-agnostic avm
+
+One-time runbook for upgrading an existing avm install past the
+agent-harness-decoupling change. Designed to be readable by a
+host-side Claude agent that walks through the migration on behalf of
+the user. **Not** needed for fresh installs (use README "First-Time
+Setup" instead).
+
+## What's automatic
+
+On the next `avm` command after the upgrade, `migrateLegacyLayout`
+runs once and:
+- moves `~/.avm/system/credentials/{ssh,git}` → `~/.avm/volumes/{ssh,git}`
+- moves `~/.avm/system/claude` → `~/.avm/volumes/claude`
+- moves `~/.avm/system/claude.json` → `~/.avm/volumes/claude.json`
+- deletes `~/.avm/system/CLAUDE.md` (regenerated as `~/.avm/AGENTS.md`)
+- removes the now-empty `~/.avm/system/` directory
+- prints a one-time hint with the `config.yaml` additions needed
+
+## What needs manual config.yaml edits
+
+`~/.avm/config.yaml` needs the following additions to restore the
+previous Claude-baked-in behaviour. The host agent should append (not
+overwrite) and preserve user formatting (use `yaml.parseDocument` or
+equivalent; do **not** raw-string-append).
+
+    agents_md: ~/CLAUDE.md          # was implicit: ~/CLAUDE.md
+    skills_dir: ~/.claude/skills    # was implicit
+    volumes:
+      - ssh:~/.ssh                  # was a fixed mount
+      - git:~/.config/git           # was a fixed mount
+      - claude:~/.claude            # was a fixed mount (Claude users)
+      - claude.json:~/.claude.json  # was a fixed mount (Claude users)
+    integrations:
+      claude_notifications: true    # if previously enabled (see below)
+      claude_desktop: true          # if previously enabled (see below)
+
+Skip the `claude:` and `claude.json:` volumes (and the
+`claude_notifications` / `claude_desktop` toggles) if the user isn't
+running Claude.
+
+## Detecting prior integration state
+
+Pre-upgrade `~/.avm/state.json` may have contained:
+- `desktopConfig.installPrompt === "installed"` → user had Claude
+  desktop sync enabled
+- `notifications.installPrompt === "installed"` → user had Claude
+  notify hooks installed
+
+The upgrade strips these fields from `state.json`, so post-upgrade
+the state file no longer shows them. If a backup exists
+(e.g. `~/.avm/state.json.bak`), the agent can read it. Otherwise ask
+the user: "Did you previously have the Claude desktop dropdown showing
+avm containers?" and "Did you previously have `avm notify install`
+run?"
+
+## Agent runbook
+
+1. Detect legacy state. Trigger conditions (any):
+   - The output of a recent `avm` command contains "Legacy ~/.avm/system
+     layout detected" or "[migrate] …".
+   - `~/.avm/volumes/{ssh,git}` exist but `~/.avm/config.yaml` doesn't
+     declare them under `volumes:`.
+
+2. Read `~/.avm/config.yaml`. Compute which of the four blocks above
+   are missing.
+
+3. Confirm with the user, one quick question at a time:
+   a. "Are you running Claude Code as the agent? (most existing users
+      are.)" Yes → keep the `claude:` / `claude.json:` volumes,
+      `agents_md: ~/CLAUDE.md`, `skills_dir: ~/.claude/skills`. No →
+      use the README "Using a different agent harness" guide instead.
+   b. "Want Claude notification hooks (sound + macOS banner on
+      `Notification`/`Stop`)?" Yes → `integrations.claude_notifications:
+      true`. After applying, the agent should remind the user to run
+      `avm notify install`.
+   c. "Want avm containers in Claude desktop's environment dropdown?"
+      Yes → `integrations.claude_desktop: true`. After applying, run
+      `avm ssh-config install --desktop` (or `avm ssh-config sync` if
+      already installed).
+
+4. Apply the additions to `~/.avm/config.yaml` with a YAML-aware edit
+   that preserves comments and ordering.
+
+5. For Claude users: ensure `~/.avm/volumes/claude.json` exists. If
+   missing, `touch ~/.avm/volumes/claude.json`. File-target volumes
+   need the source to exist before `docker run` mounts succeed.
+
+6. Verify by running `avm create <test-name> --attach`. Confirm:
+   - The migration hint no longer prints (means the agent found all
+     the now-declared volumes).
+   - Inside the container: `ls -la ~/CLAUDE.md` (mounted),
+     `ls ~/.claude/skills` (avm-* skills symlinked),
+     `claude --version` works (if claude is in the user's Dockerfile),
+     and `git config --get user.email` returns the user's identity.
+
+7. Clean up: `avm clean <test-name>`.
+
+## When NOT to follow this guide
+
+- Fresh installs (no `~/.avm/system/` directory) — follow First-Time
+  Setup in README instead.
+- Non-Claude harness users — skip the Claude-specific entries and
+  adapt per the "Using a different agent harness" section in README.
+- Users whose `config.yaml` already declares the four blocks above
+  (e.g. they applied the migration hint by hand) — no further action
+  needed.
+```
+
+**`skills/avm/SKILL.md`** (additional edit):
+
+Add a "Migration from baked-in Claude defaults" sub-section under
+"First-time setup on a fresh machine" (or as a sibling section). The
+content:
+
+> If `avm` prints "Legacy ~/.avm/system layout detected" or you see
+> moved files under `~/.avm/volumes/`, this is a one-time migration to
+> the agent-agnostic avm. Read `docs/migration-to-agent-harness-decoupling.md`
+> for the structured runbook — the agent can apply the necessary
+> `~/.avm/config.yaml` additions on the user's behalf.
+
 ### Files
 
 - README.md (modify — sections: First-Time Setup, Host Data Layout, Customizing)
-- skills/avm/SKILL.md (modify — first-time setup section + in-container layout snippet + desktop/notify integration phrasing)
+- skills/avm/SKILL.md (modify — first-time setup section + in-container layout snippet + desktop/notify integration phrasing + migration sub-section pointing to the new doc)
 - templates/agents.md (modify — body rewrite for name-agnostic phrasing)
+- docs/migration-to-agent-harness-decoupling.md (new — runbook)
 
 ### Done criteria
 
@@ -1148,6 +1287,11 @@ written), update them to AGENTS.md or the generic phrasing.
   `~/.avm/system/CLAUDE.md` outside of the migration narrative.
 - `grep -ri "CLAUDE.md" templates/ skills/` returns only intentional
   references (e.g. naming the file when explaining the redirect).
+- `docs/migration-to-agent-harness-decoupling.md` exists and contains
+  the seven-step runbook, automatic-vs-manual breakdown, and the
+  detect-prior-state guidance.
+- `skills/avm/SKILL.md` references the migration doc so a host agent
+  encountering the migration hint knows where to look.
 
 ---
 
