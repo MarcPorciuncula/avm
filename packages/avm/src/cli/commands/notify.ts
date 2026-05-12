@@ -1,9 +1,9 @@
 import { defineCommand } from "citty";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { confirm, isCancel, log } from "@clack/prompts";
 
-import { avmSystemClaudeDir } from "../../lib/config.ts";
 import { loadAvmConfig, setNotificationsEnabled } from "../../lib/config-file.ts";
 import { readState, updateState } from "../../lib/state.ts";
 import {
@@ -13,7 +13,7 @@ import {
   type ClaudeSettings,
 } from "../../lib/notify-hooks.ts";
 
-const SETTINGS_PATH = join(avmSystemClaudeDir, "settings.json");
+const SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 
 function loadSettings(): ClaudeSettings {
   if (!existsSync(SETTINGS_PATH)) return {};

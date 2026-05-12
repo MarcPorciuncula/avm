@@ -83,10 +83,8 @@ RUN chmod 755 /opt/avm/start-sshd.sh
 COPY templates/xdg-open.sh /usr/local/bin/xdg-open
 RUN chmod 755 /usr/local/bin/xdg-open
 
-# --- In-container CLAUDE.md and skills ---
+# --- In-container skills ---
 
-COPY templates/vm-claude.md /home/agent/CLAUDE.md
-RUN chown agent:agent /home/agent/CLAUDE.md
 COPY templates/skills/ /opt/avm/skills/
 
 USER agent

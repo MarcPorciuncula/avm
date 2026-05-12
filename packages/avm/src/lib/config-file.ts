@@ -43,10 +43,18 @@ export interface AvmConfig {
   editor?: EditorChoice;
   daemon: DaemonConfig;
   prune_images: PruneImagesConfig;
+  agents_md: string[];
+  skills_dir: string[];
   volumes: VolumeMount[];
   repos: Record<string, RepoConfig>;
   services: Record<string, ServiceDefinition>;
+  integrations: IntegrationsConfig;
   notifications: NotificationsConfig;
+}
+
+export interface IntegrationsConfig {
+  claude_notifications: boolean;
+  claude_desktop: boolean;
 }
 
 export interface VolumeMount {
@@ -79,9 +87,12 @@ export function loadAvmConfig(): AvmConfig {
     return {
       daemon: { port: 6970 },
       prune_images: defaultPruneImagesConfig(),
+      agents_md: ["~/AGENTS.md"],
+      skills_dir: [],
       volumes: [],
       repos: {},
       services: {},
+      integrations: { claude_notifications: false, claude_desktop: false },
       notifications: structuredClone(DEFAULT_NOTIFICATIONS),
     };
   }
@@ -103,6 +114,22 @@ export function setConfigEditor(editor: EditorChoice): void {
     : "";
   const doc = parseDocument(raw);
   doc.set("editor", editor);
+  writeFileSync(avmConfigFile, doc.toString());
+}
+
+/**
+ * Set an `integrations.*` boolean in `~/.avm/config.yaml`, preserving
+ * all other content and formatting. Creates the file if it doesn't exist.
+ */
+export function setConfigIntegration(
+  key: "claude_notifications" | "claude_desktop",
+  value: boolean,
+): void {
+  const raw = existsSync(avmConfigFile)
+    ? readFileSync(avmConfigFile, "utf-8")
+    : "";
+  const doc = parseDocument(raw);
+  doc.setIn(["integrations", key], value);
   writeFileSync(avmConfigFile, doc.toString());
 }
 
@@ -135,11 +162,14 @@ export function parseAvmConfig(yamlSource: string): AvmConfig {
 
 const TOP_LEVEL_KEYS = new Set([
   "editor",
+  "agents_md",
+  "skills_dir",
   "volumes",
   "repos",
   "daemon",
   "prune_images",
   "services",
+  "integrations",
   "notifications",
 ]);
 const VALID_EDITORS = new Set<string>(["code", "cursor", "zed"]);
@@ -164,11 +194,90 @@ function validate(data: unknown): AvmConfig {
   const editor = parseEditor(obj.editor);
   const daemon = parseDaemon(obj.daemon);
   const prune_images = parsePruneImages(obj.prune_images);
+  const agents_md = parseAgentsMd(obj.agents_md);
+  const skills_dir = parseSkillsDir(obj.skills_dir);
   const volumes = parseVolumes(obj.volumes);
   const repos = parseRepos(obj.repos);
   const services = parseServices(obj.services);
+  const integrations = parseIntegrations(obj.integrations);
   const notifications = parseNotifications(obj.notifications);
-  return { editor, daemon, prune_images, volumes, repos, services, notifications };
+  return {
+    editor,
+    daemon,
+    prune_images,
+    agents_md,
+    skills_dir,
+    volumes,
+    repos,
+    services,
+    integrations,
+    notifications,
+  };
+}
+
+function parseStringOrList(raw: unknown, fieldName: string): string[] {
+  if (raw === undefined) return [];
+  const isList = Array.isArray(raw);
+  const entries = isList ? raw : [raw];
+  return entries.map((entry, i) => {
+    const ctx = isList ? `${fieldName}[${i}]` : fieldName;
+    if (typeof entry !== "string" || entry.length === 0) {
+      throw new Error(
+        `${avmConfigFile}: ${ctx} must be a non-empty string (got ${describe(entry)}).`,
+      );
+    }
+    // Reject shell-unsafe chars (same rule as splitShortForm).
+    const unsafeChars = /["$`\\]|[\x00-\x1f\x7f]/;
+    if (unsafeChars.test(entry)) {
+      throw new Error(
+        `${avmConfigFile}: ${ctx} ("${entry}") contains unsafe characters.`,
+      );
+    }
+    return entry;
+  });
+}
+
+function parseAgentsMd(raw: unknown): string[] {
+  if (raw === undefined) return ["~/AGENTS.md"];
+  return parseStringOrList(raw, "agents_md");
+}
+
+function parseSkillsDir(raw: unknown): string[] {
+  return parseStringOrList(raw, "skills_dir");
+}
+
+const INTEGRATIONS_KEYS = new Set(["claude_notifications", "claude_desktop"]);
+
+function parseIntegrations(raw: unknown): IntegrationsConfig {
+  const result: IntegrationsConfig = {
+    claude_notifications: false,
+    claude_desktop: false,
+  };
+  if (raw === undefined) return result;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "integrations" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!INTEGRATIONS_KEYS.has(key)) {
+      console.warn(
+        `${avmConfigFile}: unknown key "${key}" under integrations (ignored). Allowed: ${[...INTEGRATIONS_KEYS].join(", ")}.`,
+      );
+    }
+  }
+  for (const key of INTEGRATIONS_KEYS) {
+    if (obj[key] !== undefined) {
+      if (typeof obj[key] !== "boolean") {
+        throw new Error(
+          `${avmConfigFile}: integrations.${key} must be a boolean (got ${describe(obj[key])}).`,
+        );
+      }
+      result[key as keyof IntegrationsConfig] = obj[key] as boolean;
+    }
+  }
+  return result;
 }
 
 function parseEditor(raw: unknown): EditorChoice | undefined {

@@ -3,6 +3,9 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -11,14 +14,9 @@ import { createHostContainerClient } from "@avm/shared/host-client";
 import {
   AVM_HOME,
   REPO_ROOT,
+  avmAgentsMdFile,
   avmFilesDir,
   avmMirrorsDir,
-  avmSystemClaudeDir,
-  avmSystemClaudeJsonFile,
-  avmSystemClaudeMdFile,
-  avmSystemDir,
-  avmSystemGitDir,
-  avmSystemSshDir,
   avmVolumesDir,
 } from "./config.ts";
 import { type AvmConfig, loadAvmConfig } from "./config-file.ts";
@@ -52,17 +50,13 @@ export async function unregisterContainer(name: string): Promise<void> {
 }
 
 /**
- * Ensure host-side `~/.avm/system/*` scaffolding exists so docker volume
- * mounts don't fail on missing source dirs. Creates directories and an
- * empty claude.json if missing. Does NOT populate anything — users provide
- * their own credentials and claude state.
+ * Ensure host-side `~/.avm/` scaffolding exists so docker volume mounts
+ * don't fail on missing source dirs. Creates the standard subdirectories,
+ * migrates any legacy `~/.avm/system/` layout to the new flat layout,
+ * and (re)generates `~/.avm/AGENTS.md` from the current config.
  */
 export function ensureHostScaffolding(): void {
   const requiredDirs = [
-    avmSystemDir,
-    avmSystemSshDir,
-    avmSystemGitDir,
-    avmSystemClaudeDir,
     avmMirrorsDir,
     avmVolumesDir,
     avmFilesDir,
@@ -71,15 +65,147 @@ export function ensureHostScaffolding(): void {
   for (const dir of requiredDirs) {
     mkdirSync(dir, { recursive: true });
   }
-
-  // File mounts require the source to exist before `docker run`.
-  // Seed with sensible defaults so mounts don't fail on first use.
-  if (!existsSync(avmSystemClaudeJsonFile)) {
-    writeFileSync(avmSystemClaudeJsonFile, "{}\n");
-  }
-  // Generate the root-level CLAUDE.md (always overwritten — avm owns this file).
+  migrateLegacyLayout();
   const config = loadAvmConfig();
-  generateRootClaudeMd(config);
+  generateAgentsMd(config);
+}
+
+type LegacyMove = {
+  src: string;
+  dst: string;
+  /** Volume-line representation used in the migration hint snippet (`- name:target`). */
+  volumeLine: string;
+};
+
+function migrateLegacyLayout(): void {
+  const legacySystem = path.join(AVM_HOME, "system");
+  if (!existsSync(legacySystem)) return;
+
+  const moves: LegacyMove[] = [
+    {
+      src: path.join(legacySystem, "credentials", "ssh"),
+      dst: path.join(avmVolumesDir, "ssh"),
+      volumeLine: "- ssh:~/.ssh",
+    },
+    {
+      src: path.join(legacySystem, "credentials", "git"),
+      dst: path.join(avmVolumesDir, "git"),
+      volumeLine: "- git:~/.config/git",
+    },
+    {
+      src: path.join(legacySystem, "claude"),
+      dst: path.join(avmVolumesDir, "claude"),
+      volumeLine: "- claude:~/.claude",
+    },
+    {
+      src: path.join(legacySystem, "claude.json"),
+      dst: path.join(avmVolumesDir, "claude.json"),
+      volumeLine: "- claude.json:~/.claude.json",
+    },
+  ];
+
+  const collisions: { src: string; dst: string }[] = [];
+  for (const m of moves) {
+    if (existsSync(m.src)) {
+      if (existsSync(m.dst)) {
+        console.log(
+          `    [migrate] ${m.dst} already exists — skipped move of ${m.src}`,
+        );
+        collisions.push({ src: m.src, dst: m.dst });
+      } else {
+        mkdirSync(path.dirname(m.dst), { recursive: true });
+        renameSync(m.src, m.dst);
+        console.log(`    [migrate] ${m.src} → ${m.dst}`);
+      }
+    }
+  }
+
+  // Old CLAUDE.md is regenerated as AGENTS.md by ensureHostScaffolding —
+  // delete the legacy file so it doesn't linger.
+  const legacyClaudeMd = path.join(legacySystem, "CLAUDE.md");
+  if (existsSync(legacyClaudeMd)) {
+    rmSync(legacyClaudeMd);
+  }
+
+  // Best-effort cleanup of now-empty legacy dirs.
+  try {
+    rmdirSync(path.join(legacySystem, "credentials"));
+  } catch {
+    // Not empty or already gone — ignore.
+  }
+  try {
+    rmdirSync(legacySystem);
+  } catch {
+    // Not empty or already gone — ignore.
+  }
+
+  printMigrationHintIfNeeded(moves);
+  printCollisionNoticeIfNeeded(collisions);
+}
+
+function printCollisionNoticeIfNeeded(
+  collisions: { src: string; dst: string }[],
+): void {
+  if (collisions.length === 0) return;
+  // Compute a column width so the "(legacy)" / "(new — will be used)"
+  // annotations line up regardless of path lengths.
+  const width = Math.max(...collisions.map((c) => c.src.length), ...collisions.map((c) => c.dst.length));
+  console.log();
+  console.log(
+    "==> Legacy data left in place — both paths exist:",
+  );
+  for (const c of collisions) {
+    console.log(`      ${c.src.padEnd(width)}  (legacy)`);
+    console.log(`      ${c.dst.padEnd(width)}  (new — will be used)`);
+  }
+  console.log(
+    "    Inspect the legacy path and either delete it, or move its contents",
+  );
+  console.log("    into the new path manually.");
+  console.log();
+}
+
+function printMigrationHintIfNeeded(allMoves: LegacyMove[]): void {
+  // Determine which moves landed (dst exists, regardless of whether we
+  // moved it just now or in a previous run).
+  const landed = allMoves.filter((m) => existsSync(m.dst));
+  if (landed.length === 0) return;
+
+  const config = loadAvmConfig();
+  const declaredSources = new Set(
+    config.volumes.map((v) => v.source.replace(/^\/+/, "")),
+  );
+  const undeclared = landed.filter((m) => {
+    // m.volumeLine looks like "- ssh:~/.ssh"; the source token is "ssh".
+    const source = m.volumeLine.replace(/^- /, "").split(":")[0];
+    return !declaredSources.has(source);
+  });
+  if (undeclared.length === 0) return;
+
+  console.log();
+  console.log(
+    "==> Legacy ~/.avm/system layout detected. Files moved to ~/.avm/volumes.",
+  );
+  console.log(
+    "    Declare them in ~/.avm/config.yaml to restore previous behaviour:",
+  );
+  console.log();
+  console.log("      agents_md: ~/CLAUDE.md");
+  console.log("      skills_dir: ~/.claude/skills");
+  console.log("      volumes:");
+  for (const m of undeclared) {
+    console.log(`        ${m.volumeLine}`);
+  }
+  console.log("      integrations:");
+  console.log(
+    "        claude_notifications: true   # if previously enabled",
+  );
+  console.log(
+    "        claude_desktop: true         # if previously enabled",
+  );
+  console.log();
+  console.log("    Or copy examples/config.yaml as a starting point.");
+  console.log();
 }
 
 /**
@@ -115,16 +241,16 @@ export async function applyPostCreationSetup(
 }
 
 /**
- * Generate the root-level `~/CLAUDE.md` that every container sees.
- * Written to `~/.avm/system/CLAUDE.md` on the host and bind-mounted
- * into containers — updates propagate to running containers immediately.
+ * Generate the host-side `~/.avm/AGENTS.md` that every container sees
+ * mounted to each path declared in `config.agents_md`. Updates propagate
+ * to running containers immediately.
  *
- * Static content comes from `templates/vm-claude.md`. This function
- * appends dynamic sections (e.g. host services listing).
+ * Static content comes from `templates/agents.md`. This function appends
+ * dynamic sections (e.g. host services listing).
  */
-export function generateRootClaudeMd(config: AvmConfig): void {
+export function generateAgentsMd(config: AvmConfig): void {
   const template = readFileSync(
-    join(REPO_ROOT, "templates", "vm-claude.md"),
+    join(REPO_ROOT, "templates", "agents.md"),
     "utf-8",
   );
 
@@ -145,58 +271,48 @@ export function generateRootClaudeMd(config: AvmConfig): void {
 
   parts.push("");
 
-  writeFileSync(avmSystemClaudeMdFile, parts.join("\n"));
+  writeFileSync(avmAgentsMdFile, parts.join("\n"));
 }
 
 /**
- * Build the `-v` flag array for `docker run`. Encodes all fixed system
- * mounts and user-configured volumes from config.yaml.
+ * Build the `-v` flag array for `docker run`. Encodes the fixed avm
+ * machinery mounts, the generated AGENTS.md mounted to each target in
+ * `config.agents_md`, and user-configured volumes from config.yaml.
  *
  * Returns a flat array like `["-v", "src:dst", "-v", "src:dst", ...]`.
  */
 export function getDockerMountArgs(config: AvmConfig): string[] {
   const args: string[] = [];
 
-  // --- Fixed system mounts ---
-  const fixedMounts: [string, string][] = [
-    [avmSystemSshDir, "/home/agent/.ssh"],
-    [avmSystemClaudeDir, "/home/agent/.claude"],
-    [avmSystemClaudeJsonFile, "/home/agent/.claude.json"],
-    [avmSystemClaudeMdFile, "/home/agent/CLAUDE.md"],
-    [avmSystemGitDir, "/home/agent/.config/git"],
-    [avmMirrorsDir, "/home/agent/mirrors"],
-    [avmFilesDir, "/home/agent/.avm-files"],
-    [bridgeBin, "/usr/local/bin/avm-bridge"],
-  ];
+  // Fixed avm-machinery mounts.
+  args.push("-v", `${bridgeBin}:/usr/local/bin/avm-bridge`);
+  args.push("-v", `${avmMirrorsDir}:/home/agent/mirrors`);
+  args.push("-v", `${avmFilesDir}:/home/agent/.avm-files`);
 
-  for (const [source, target] of fixedMounts) {
-    args.push("-v", `${source}:${target}`);
+  // Generated guidance file mounted to each configured target.
+  for (const target of config.agents_md) {
+    args.push("-v", `${avmAgentsMdFile}:${resolveContainerPath(target)}`);
   }
 
-  // --- User volumes from config.yaml ---
+  // User-declared volumes.
   for (const volume of config.volumes) {
     const resolvedSource = volume.source.startsWith("/")
       ? volume.source
       : path.join(avmVolumesDir, volume.source);
-
-    let resolvedTarget: string;
-    if (volume.target.startsWith("/")) {
-      resolvedTarget = volume.target;
-    } else if (volume.target.startsWith("~/")) {
-      resolvedTarget = `/home/agent/${volume.target.slice(2)}`;
-    } else {
-      resolvedTarget = `/home/agent/${volume.target}`;
-    }
-
+    const resolvedTarget = resolveContainerPath(volume.target);
     if (!existsSync(resolvedSource)) {
       console.warn(
         `    [warn] volume source missing: ${resolvedSource} — skipping mount to ${resolvedTarget}`,
       );
       continue;
     }
-
     args.push("-v", `${resolvedSource}:${resolvedTarget}`);
   }
-
   return args;
+}
+
+function resolveContainerPath(raw: string): string {
+  if (raw.startsWith("/")) return raw;
+  if (raw.startsWith("~/")) return `/home/agent/${raw.slice(2)}`;
+  return `/home/agent/${raw}`;
 }

@@ -34,7 +34,18 @@ transparently via an idempotent layout move on first run.
 ---
 
 ## Task 1: Add agents_md, skills_dir, integrations to config schema
-- [ ] Status
+- [x] Status
+
+### Result
+
+Added `agents_md`, `skills_dir`, and `integrations` to `AvmConfig` with
+matching parse helpers (`parseStringOrList`, `parseAgentsMd`,
+`parseSkillsDir`, `parseIntegrations`) and a `setConfigIntegration`
+helper that preserves surrounding YAML. Updated empty-config defaults
+and `TOP_LEVEL_KEYS`. Verified via scratch tsx run: defaults, string
+form, list form, invalid-type errors, and round-trip
+`setConfigIntegration` all behaved as specified. `pnpm build`
+clean. Commit: 0d21a19
 
 ### Scope
 
@@ -205,8 +216,27 @@ export function setConfigIntegration(
 ---
 
 ## Task 2: Flatten ~/.avm/system/ and rename CLAUDE.md to AGENTS.md
-- [ ] Status
+- [x] Status
 Depends on: Task 1
+
+### Result
+
+Replaced the `avmSystem*` constants with a single `avmAgentsMdFile`,
+rewrote `ensureHostScaffolding` to skip legacy dir creation and invoke
+`migrateLegacyLayout` (idempotent move of credentials/ssh, credentials/git,
+claude, claude.json into `~/.avm/volumes/`, deletion of legacy CLAUDE.md,
+and a config-aware migration hint). `getDockerMountArgs` now mounts only
+avm-bridge + mirrors + .avm-files + per-target AGENTS.md + user volumes;
+shared `resolveContainerPath` handles tilde/relative resolution. Renamed
+`generateRootClaudeMd` → `generateAgentsMd` (now reads
+`templates/agents.md`). Retargeted notify.ts `SETTINGS_PATH` to
+`~/.claude/settings.json`. Dropped the `COPY templates/vm-claude.md`
+block from `dockerfiles/core.Dockerfile`. `templates/vm-claude.md`
+renamed via `git mv` to `templates/agents.md`. Verified with a scratch
+tsx run across four scenarios (fresh host, legacy host with full system
+layout, second-run hint suppression when volumes declared, hint
+re-printed when undeclared) — all behaved as specified. `pnpm build`
+clean. Commit: 0d21a19
 
 ### Scope
 
