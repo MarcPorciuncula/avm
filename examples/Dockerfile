@@ -83,3 +83,12 @@ USER root
 RUN git config --system url."git@github.com:Alcova-AI/".insteadOf "https://github.com/Alcova-AI/"
 
 USER agent
+
+# --- Claude Code -----------------------------------------------------------
+# Installs Claude into ~/.claude. The host bind-mounts
+# ~/.avm/volumes/claude into ~/.claude (see examples/config.yaml volumes:)
+# so login state persists across containers. Remove this section if you use
+# a different agent harness.
+
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc

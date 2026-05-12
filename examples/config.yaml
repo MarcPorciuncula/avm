@@ -1,52 +1,76 @@
-# ~/.avm/config.yaml — example with host services
+# ~/.avm/config.yaml — Claude Code defaults.
+#
+# Copying this file as-is reproduces avm's previous baked-in behaviour:
+# Claude state and credentials mounted into every container, AGENTS.md
+# presented as CLAUDE.md, Claude desktop integration enabled.
 
-# Editor used by `avm editor` and `avm-bridge editor open`.
-# Allowed: code | cursor | zed.  zed requires `avm ssh-config install`.
+# Mount avm's generated guidance file as ~/CLAUDE.md (Claude's
+# habit-matching name). Default would be ~/AGENTS.md; both are read by
+# Claude Code.
+agents_md: ~/CLAUDE.md
+
+# Symlink avm-* skills into Claude's skills directory so the
+# in-container agent discovers them via its normal mechanism.
+skills_dir: ~/.claude/skills
+
+# Editor used by `avm editor` / `avm-bridge editor open`.
+# Allowed: code | cursor | zed. zed requires `avm ssh-config install`.
 editor: cursor
+
+# Bind mounts. source is relative to ~/.avm/volumes/ (or absolute);
+# target is relative to /home/agent/ (~/ or absolute also accepted).
+volumes:
+  # Credentials. Drop your SSH key+config into ~/.avm/volumes/ssh
+  # and your git config into ~/.avm/volumes/git/config.
+  - ssh:~/.ssh
+  - git:~/.config/git
+
+  # Claude Code state (persists across containers; shared between them).
+  # Create the dirs first: `mkdir -p ~/.avm/volumes/claude` and
+  # `touch ~/.avm/volumes/claude.json`.
+  - claude:~/.claude
+  - claude.json:~/.claude.json
+
+  # Caches — optional but recommended.
+  - pnpm-store:~/.local/share/pnpm/store
+
+# Host integrations with Claude Code.
+integrations:
+  # Forward Claude's Notification/Stop hooks to host notifications
+  # (sounds + macOS banners). Run `avm notify install` after enabling.
+  claude_notifications: true
+
+  # Register avm containers as SSH environments in Claude desktop.
+  # Run `avm ssh-config install` after enabling.
+  claude_desktop: true
 
 # Daemon configuration
 daemon:
   port: 6970
 
-# Image pruning — `avm provision` builds a new timestamped `avm:<ts>` tag
-# every run. Tags still in use by a container are always kept, regardless
-# of keep_recent (Docker would refuse the removal anyway).
+# Image pruning — `avm provision` builds a new timestamped tag every run.
 prune_images:
   enabled: true
   keep_recent: 1
 
-# Bind mounts applied to every session container
-volumes:
-  - pnpm-store:~/.local/share/pnpm/store
+# Optionally declare per-repo symlinks (applied by `avm-bridge link`):
+# repos:
+#   my-project:
+#     symlinks:
+#       - envs/my-project.env:.env
 
-# Host services — started/stopped on demand by agents via avm-bridge
-services:
-  chrome:
-    kind: process
-    command:
-      - /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-      - --remote-debugging-port=9222
-      - --user-data-dir=/tmp/chrome-devtools-profile
-    check:
-      tcp: 127.0.0.1:9222
+# Optionally declare host services managed by the daemon:
+# services:
+#   chrome:
+#     kind: process
+#     command:
+#       - /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+#       - --remote-debugging-port=9222
+#       - --user-data-dir=/tmp/chrome-devtools-profile
+#     check:
+#       tcp: 127.0.0.1:9222
 
-  # Example: postgres in a host docker container
-  # postgres:
-  #   kind: docker
-  #   container: local-postgres
-  #   check:
-  #     tcp: 127.0.0.1:5432
-
-# Per-repo config
-repos:
-  my-project:
-    symlinks:
-      - envs/my-project.env:.env
-
-# Host notifications — sound + macOS notification when in-container Claude
-# fires a Notification or Stop hook. Defaults shown below; uncomment to
-# customise.
-#
+# Optionally tune host-notification sounds (macOS only):
 # notifications:
 #   enabled: true
 #   sounds:

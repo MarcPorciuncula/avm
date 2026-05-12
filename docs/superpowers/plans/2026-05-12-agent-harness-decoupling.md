@@ -546,7 +546,7 @@ core-image rebuild on next `avm provision`. Nothing to do there.
 ---
 
 ## Task 3: De-Claude the core image; ship Claude defaults via examples
-- [ ] Status
+- [x] Status
 Depends on: Task 2
 
 ### Scope
@@ -736,6 +736,20 @@ prune_images:
   `claude --dangerously-skip-permissions` (per `.bashrc`).
 - `examples/config.yaml` parses cleanly through `loadAvmConfig()`; no
   unknown-key warnings.
+
+### Result
+
+Stripped the Claude install block and `clauded` alias from
+`dockerfiles/core.Dockerfile` (kept the `USER agent` directive that
+scopes the surrounding RUNs). Appended a labelled Claude Code block to
+`examples/Dockerfile` (with trailing `USER root`) and rewrote
+`examples/config.yaml` as the Claude-defaults bundle. Verified
+end-to-end: core image built and `docker run --rm avm-core:latest which
+claude` exited 1; copying the example files and running `avm provision
+--force` produced `avm:latest` with `claude` at `~/.local/bin/claude`
+and `clauded` aliased in `~agent/.bashrc`; `parseAvmConfig` on
+`examples/config.yaml` returned a clean config with no unknown-key
+warnings. Commit: d9dc4aa
 
 ---
 
