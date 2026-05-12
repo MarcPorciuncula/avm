@@ -1168,9 +1168,12 @@ runs once and:
 ## What needs manual config.yaml edits
 
 `~/.avm/config.yaml` needs the following additions to restore the
-previous Claude-baked-in behaviour. The host agent should append (not
-overwrite) and preserve user formatting (use `yaml.parseDocument` or
-equivalent; do **not** raw-string-append).
+previous Claude-baked-in behaviour. The host agent applies these with
+its standard file-edit tool — a careful textual edit that inserts the
+new top-level keys near related ones and preserves user comments and
+ordering. Do not overwrite the file or blindly append to the end;
+merge into existing structure where it makes sense (e.g. extend an
+existing `volumes:` block rather than starting a new one).
 
     agents_md: ~/CLAUDE.md          # was implicit: ~/CLAUDE.md
     skills_dir: ~/.claude/skills    # was implicit
@@ -1189,18 +1192,19 @@ running Claude.
 
 ## Detecting prior integration state
 
-Pre-upgrade `~/.avm/state.json` may have contained:
+Pre-upgrade `~/.avm/state.json` contained two now-removed fields that
+recorded prior opt-in:
 - `desktopConfig.installPrompt === "installed"` → user had Claude
   desktop sync enabled
 - `notifications.installPrompt === "installed"` → user had Claude
   notify hooks installed
 
-The upgrade strips these fields from `state.json`, so post-upgrade
-the state file no longer shows them. If a backup exists
-(e.g. `~/.avm/state.json.bak`), the agent can read it. Otherwise ask
-the user: "Did you previously have the Claude desktop dropdown showing
-avm containers?" and "Did you previously have `avm notify install`
-run?"
+The upgrade strips both fields. No automatic backup is made, so the
+information is gone unless the user has their own snapshot. **In
+practice the agent should just ask the user:** "Did you previously
+have the Claude desktop dropdown showing avm containers?" and "Did
+you previously have `avm notify install` run?" Both questions are
+short and the answers are easy for the user to recall.
 
 ## Agent runbook
 
@@ -1227,8 +1231,11 @@ run?"
       `avm ssh-config install --desktop` (or `avm ssh-config sync` if
       already installed).
 
-4. Apply the additions to `~/.avm/config.yaml` with a YAML-aware edit
-   that preserves comments and ordering.
+4. Apply the additions to `~/.avm/config.yaml`. Use a careful textual
+   edit: insert each new top-level key near related ones
+   (e.g. `agents_md` and `skills_dir` near other top-level keys, new
+   `volumes:` entries appended to an existing `volumes:` block).
+   Preserve comments and ordering; do not rewrite the whole file.
 
 5. For Claude users: ensure `~/.avm/volumes/claude.json` exists. If
    missing, `touch ~/.avm/volumes/claude.json`. File-target volumes
@@ -1239,8 +1246,9 @@ run?"
      the now-declared volumes).
    - Inside the container: `ls -la ~/CLAUDE.md` (mounted),
      `ls ~/.claude/skills` (avm-* skills symlinked),
-     `claude --version` works (if claude is in the user's Dockerfile),
-     and `git config --get user.email` returns the user's identity.
+     `git config --get user.email` returns the user's identity.
+   - If the user kept the Claude block in their Dockerfile:
+     `claude --version` works.
 
 7. Clean up: `avm clean <test-name>`.
 
@@ -1378,8 +1386,20 @@ before starting; restore at the end.
    - `avm ssh-config uninstall` clears the flag and drops avm-owned
      entries.
 
-9. **Restore:** `rm -rf ~/.avm && mv ~/.avm.bak ~/.avm`, restore
-   `~/.claude/settings.json` if needed.
+9. **Migration runbook walkthrough.** Roll back to a snapshot of the
+   legacy state (the `~/.avm.bak` backup from step 1, restored to
+   `~/.avm`), then re-apply the upgrade (next `avm` command triggers
+   migration). Open
+   `docs/migration-to-agent-harness-decoupling.md` and follow it as if
+   you were the host agent — read each step, confirm the action is
+   executable, and apply it. End state should match the post-step-3
+   working container in this verification: `avm create` runs without
+   the migration hint, container mounts behave as before. If any step
+   in the runbook is unclear or unactionable, file the gap and fix the
+   doc.
+
+10. **Restore:** `rm -rf ~/.avm && mv ~/.avm.bak ~/.avm`, restore
+    `~/.claude/settings.json` if needed.
 
 ### Files
 
@@ -1387,7 +1407,7 @@ before starting; restore at the end.
 
 ### Done criteria
 
-- All eight verification scenarios pass with the documented behaviour.
+- All ten verification scenarios pass with the documented behaviour.
 - Migration is non-destructive on a real legacy state.
 - Claude defaults reproduce today's behaviour via composition.
 - Non-Claude config produces a container with no Claude leftovers
