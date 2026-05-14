@@ -754,7 +754,7 @@ warnings. Commit: d9dc4aa
 ---
 
 ## Task 4: Wire skills_dir into applyPostCreationSetup
-- [ ] Status
+- [x] Status
 Depends on: Tasks 1, 2
 
 ### Scope
@@ -814,6 +814,15 @@ if not already present.
   directories receive symlinks.
 - With `skills_dir` unset, no `~/.claude/skills` directory is created
   inside the container (verify with `docker exec <name> ls /home/agent/.claude/skills` failing with "No such file or directory" — unless something else created it).
+
+### Result
+
+Replaced the hardcoded `/home/agent/.claude/skills` symlink step in
+`applyPostCreationSetup` with a `for...of` loop over `config.skills_dir`,
+using `resolveContainerPath` for tilde resolution. Verified via build
+(`pnpm build` exit 0) and code-level reasoning over the three Done
+cases (empty list skips the loop entirely; single and multi-entry
+lists produce one `docker exec` per target). Commit: c926a29
 
 ---
 

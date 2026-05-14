@@ -211,7 +211,7 @@ function printMigrationHintIfNeeded(allMoves: LegacyMove[]): void {
 /**
  * Post-creation setup run after `docker run` or `docker start`.
  * Persists AVM_* env vars for SSH, symlinks image-shipped skills into
- * ~/.claude/skills/, and ensures avm-bridge is executable.
+ * each configured skills_dir, and ensures avm-bridge is executable.
  */
 export async function applyPostCreationSetup(
   containerName: string,
@@ -228,13 +228,17 @@ export async function applyPostCreationSetup(
     'env | grep "^AVM_" >> /etc/environment'
   }`;
 
-  // --- Symlink image-shipped skills into ~/.claude/skills/ ---
-  await $`docker exec ${containerName} bash -c ${
-    "mkdir -p /home/agent/.claude/skills && " +
-    "for d in /opt/avm/skills/*/; do " +
-    'ln -sfn "$d" /home/agent/.claude/skills/$(basename "$d"); ' +
-    "done"
-  }`;
+  // --- Symlink image-shipped skills into configured skills_dir(s) ---
+  const config = loadAvmConfig();
+  for (const raw of config.skills_dir) {
+    const target = resolveContainerPath(raw);
+    await $`docker exec ${containerName} bash -c ${
+      `mkdir -p "${target}" && ` +
+      `for d in /opt/avm/skills/*/; do ` +
+      `ln -sfn "$d" "${target}/$(basename "$d")"; ` +
+      `done`
+    }`;
+  }
 
   // --- Make avm-bridge executable ---
   await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-bridge`;
