@@ -827,7 +827,7 @@ lists produce one `docker exec` per target). Commit: c926a29
 ---
 
 ## Task 5: Move integrations to config; remove first-run prompts
-- [ ] Status
+- [x] Status
 Depends on: Tasks 1, 2
 
 ### Scope
@@ -1030,6 +1030,10 @@ if they're no longer used after the rewrite.
 - Editing `integrations.claude_desktop: true` by hand in config.yaml and
   running `avm create` syncs settings.json without any prior install
   command.
+
+### Result
+
+Dropped `desktopConfig` and `notifications` from `AvmState`; install/uninstall paths in `desktop-config.ts` and `notify.ts` now call `setConfigIntegration`. `syncHostIntegrations` reads `integrations.claude_desktop` from config.yaml. First-run prompts deleted from `create`, `provision`, `start`; `maybePromptForInstall` removed. `ssh-config install --desktop`/`--no-desktop` are pure flag-setters; without a flag the SSH-Include install also runs `syncDesktopConfig` when the config flag is true. Commit: 6679218
 
 ---
 

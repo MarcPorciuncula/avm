@@ -2,10 +2,12 @@ import { defineCommand } from "citty";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { confirm, isCancel, log } from "@clack/prompts";
 
-import { loadAvmConfig, setNotificationsEnabled } from "../../lib/config-file.ts";
-import { readState, updateState } from "../../lib/state.ts";
+import {
+  loadAvmConfig,
+  setConfigIntegration,
+  setNotificationsEnabled,
+} from "../../lib/config-file.ts";
 import {
   installHooks,
   uninstallHooks,
@@ -61,7 +63,7 @@ const installSub = defineCommand({
     } catch (err) {
       reportSettingsError(err);
     }
-    updateState({ notifications: { installPrompt: "installed" } });
+    setConfigIntegration("claude_notifications", true);
     console.log(`Installed avm notification hooks in ${SETTINGS_PATH}.`);
     console.log("Open the avm container and run `claude` — Notification and Stop will ping the host.");
   },
@@ -83,8 +85,7 @@ const uninstallSub = defineCommand({
 
     if (before === 0) {
       console.log(`No avm hook entries found in ${SETTINGS_PATH}. Nothing to uninstall.`);
-      // Still clear the prompt decision so a future `provision`/`start` re-asks.
-      updateState({ notifications: { installPrompt: undefined } });
+      setConfigIntegration("claude_notifications", false);
       return;
     }
 
@@ -94,7 +95,7 @@ const uninstallSub = defineCommand({
     } catch (err) {
       reportSettingsError(err);
     }
-    updateState({ notifications: { installPrompt: undefined } });
+    setConfigIntegration("claude_notifications", false);
     console.log(`Removed ${before} avm hook entr${before === 1 ? "y" : "ies"} from ${SETTINGS_PATH}.`);
   },
 });
@@ -131,18 +132,16 @@ function printStatus(): void {
     parseError = (err as Error).message;
   }
   const installed = countAvmEntries(settings);
-  const state = readState();
-  const promptState = state.notifications?.installPrompt ?? "(not asked)";
 
   // Config-independent diagnostics first — print regardless of config validity.
   console.log(`Hook install:    ${installed > 0 ? `installed (${installed} entr${installed === 1 ? "y" : "ies"})` : "not installed"}`);
   if (parseError) console.log(`                 ${parseError}`);
   console.log(`Settings file:   ${SETTINGS_PATH}`);
-  console.log(`Install prompt:  ${promptState}`);
 
-  // Config-dependent: master switch + sounds.
+  // Config-dependent: integration flag, master switch + sounds.
   try {
     const config = loadAvmConfig();
+    console.log(`claude_notifications: ${config.integrations.claude_notifications}`);
     console.log(`Master switch:   notifications.enabled = ${config.notifications.enabled}`);
     console.log(`Sound — needs-attention: ${config.notifications.sounds["needs-attention"].file} @ ${config.notifications.sounds["needs-attention"].volume}`);
     console.log(`Sound — complete:        ${config.notifications.sounds.complete.file} @ ${config.notifications.sounds.complete.volume}`);
@@ -160,53 +159,6 @@ const statusSub = defineCommand({
     printStatus();
   },
 });
-
-/**
- * Run the first-run install prompt. No-op if the user has already answered
- * (state.notifications.installPrompt is set). Returns true if the prompt
- * was shown, false otherwise.
- */
-export async function maybePromptForInstall(): Promise<boolean> {
-  const state = readState();
-  if (state.notifications?.installPrompt !== undefined) return false;
-
-  const answer = await confirm({
-    message:
-      "AVM can play a sound and post a macOS notification when the agent needs your attention or finishes a turn. Install hooks now?\nYou can change this later with `avm notify {install,uninstall,mute,unmute}`.",
-    initialValue: true,
-  });
-
-  if (isCancel(answer)) {
-    // Treat cancel as "ask again next time" — don't record an answer.
-    log.warn("Install prompt cancelled. AVM will ask again next time.");
-    return true;
-  }
-
-  if (answer === true) {
-    let settings: ClaudeSettings;
-    try {
-      settings = loadSettings();
-    } catch (err) {
-      log.error(err instanceof Error ? err.message : String(err));
-      log.warn("Skipped install — fix settings.json and run `avm notify install` to retry.");
-      return true;
-    }
-    const next = installHooks(settings);
-    try {
-      writeSettings(next);
-    } catch (err) {
-      log.error(err instanceof Error ? err.message : String(err));
-      log.warn("Skipped install — fix the issue and run `avm notify install` to retry.");
-      return true;
-    }
-    updateState({ notifications: { installPrompt: "installed" } });
-    log.success(`Installed avm notification hooks in ${SETTINGS_PATH}.`);
-  } else {
-    updateState({ notifications: { installPrompt: "declined" } });
-    log.info("Skipped — you can install later with `avm notify install`.");
-  }
-  return true;
-}
 
 export const notifyCommand = defineCommand({
   meta: {

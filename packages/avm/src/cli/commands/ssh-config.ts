@@ -1,5 +1,4 @@
 import { defineCommand } from "citty";
-import { select, isCancel } from "@clack/prompts";
 import {
   installInclude,
   syncHostIntegrations,
@@ -7,9 +6,14 @@ import {
 } from "../../lib/ssh-config.ts";
 import {
   installDesktopConfig,
+  syncDesktopConfig,
   uninstallDesktopConfig,
 } from "../../lib/desktop-config.ts";
-import { readState, updateState } from "../../lib/state.ts";
+import {
+  loadAvmConfig,
+  setConfigIntegration,
+} from "../../lib/config-file.ts";
+import { updateState } from "../../lib/state.ts";
 
 const syncSub = defineCommand({
   meta: {
@@ -33,11 +37,17 @@ const installSub = defineCommand({
     desktop: {
       type: "boolean",
       description:
-        "Register avm containers in ~/.claude/settings.json. Use --no-desktop to opt out. Either form skips the prompt.",
+        "Also register avm containers in ~/.claude/settings.json. Use --no-desktop to opt out. These flags only control the desktop side; the SSH-config Include is always installed. Either form flips integrations.claude_desktop in ~/.avm/config.yaml.",
     },
   },
   async run({ args }) {
-    // 1. Existing SSH-config install (unchanged behaviour).
+    // parseArgs treats --no-X as the negation of --X, so --desktop and
+    // --no-desktop both map to args.desktop (true/false). Absence is undefined.
+    const desktopFlag: boolean | undefined =
+      typeof args.desktop === "boolean" ? args.desktop : undefined;
+
+    // Always install the SSH-config Include first; the desktop flag only
+    // controls the desktop add-on that follows.
     const sshResult = await installInclude();
     updateState({ sshConfig: { installPrompt: "installed" } });
     if (sshResult.status === "installed") {
@@ -47,52 +57,28 @@ const installSub = defineCommand({
       console.log("Already installed — ~/.ssh/config already includes avm's config.");
     }
 
-    // 2. Decide on desktop side. parseArgs treats --no-X as the negation of
-    // --X, so --desktop and --no-desktop both map to args.desktop (true/false).
-    let wantDesktop: boolean | null = null;
-    if (typeof args.desktop === "boolean") {
-      wantDesktop = args.desktop;
+    if (desktopFlag === true) {
+      await installDesktopConfig();
+      console.log(
+        "Set integrations.claude_desktop: true in ~/.avm/config.yaml and wrote ~/.claude/settings.json.",
+      );
+      return;
     }
 
-    if (wantDesktop === null) {
-      const state = readState();
-      if (state.desktopConfig?.installPrompt === undefined) {
-        const choice = await select({
-          message:
-            "Also register avm containers in the Claude desktop app's environment dropdown? (writes to ~/.claude/settings.json)",
-          options: [
-            { value: "yes", label: "Yes, install it" },
-            { value: "later", label: "Not now (ask again next time)" },
-            { value: "never", label: "No, don't ask again" },
-          ],
-          initialValue: "yes",
-        });
-        if (isCancel(choice)) return;
-        if (choice === "yes") wantDesktop = true;
-        else if (choice === "never") {
-          updateState({ desktopConfig: { installPrompt: "declined" } });
-          wantDesktop = false;
-        } else {
-          // "later" — leave state undefined so we ask again next time.
-          wantDesktop = false;
-        }
-      } else {
-        // Already answered. Honour previous answer.
-        wantDesktop = state.desktopConfig?.installPrompt === "installed";
-      }
+    if (desktopFlag === false) {
+      setConfigIntegration("claude_desktop", false);
+      console.log(
+        "Set integrations.claude_desktop: false in ~/.avm/config.yaml.",
+      );
+      return;
     }
 
-    if (wantDesktop) {
-      const desktopResult = await installDesktopConfig();
-      if (desktopResult.status === "installed") {
-        console.log(
-          "Registered avm containers in ~/.claude/settings.json (sshConfigs).",
-        );
-      } else {
-        console.log(
-          "Already registered — ~/.claude/settings.json already lists avm containers.",
-        );
-      }
+    // Neither flag passed: honour the current config flag — sync if it's
+    // on, do nothing extra if it's off. Don't modify the flag itself.
+    const config = loadAvmConfig();
+    if (config.integrations.claude_desktop) {
+      await syncDesktopConfig();
+      console.log("Synced avm containers into ~/.claude/settings.json.");
     }
   },
 });
@@ -112,15 +98,13 @@ const uninstallSub = defineCommand({
       console.log("Nothing to uninstall — no avm Include block found.");
     }
 
-    const state = readState();
-    if (state.desktopConfig?.installPrompt === "installed") {
-      const desktopResult = await uninstallDesktopConfig();
-      if (desktopResult.status === "uninstalled") {
-        console.log("Removed avm entries from ~/.claude/settings.json.");
-      } else {
-        console.log("No avm entries found in ~/.claude/settings.json.");
-      }
-    }
+    // Always run the desktop uninstall — it's idempotent and total, so it
+    // cleans up any avm-owned entries even if the integration flag was
+    // hand-edited to false while entries still exist in settings.json.
+    await uninstallDesktopConfig();
+    console.log(
+      "Cleared integrations.claude_desktop and removed avm entries from ~/.claude/settings.json.",
+    );
   },
 });
 
