@@ -55,45 +55,49 @@ ln -s "$(pwd)/skills/avm" ~/.claude/skills/avm
 
 The symlink keeps the skill in sync with `git pull`.
 
-## First-Time Setup
+## First-Time Setup (Claude Code defaults)
 
 `avm` keeps all user-owned state under `~/.avm/`. A fresh install starts
-with no `~/.avm/` at all — you create the pieces you need. On a fresh
-machine you can either walk through the steps below manually, or let
-the host-side Claude skill guide you.
+with no `~/.avm/` at all — you create the pieces you need. The
+walkthrough below reproduces avm's Claude-flavored defaults: Claude Code
+in the image, credentials and Claude state mounted in, AGENTS.md
+presented as CLAUDE.md, host notifications and desktop dropdown wired
+up. To use a different agent harness, see
+["Using a different agent harness"](#using-a-different-agent-harness)
+below.
 
-### 1. Seed host credentials
+On a fresh machine you can walk through the steps manually, or let the
+host-side Claude skill guide you.
 
-Create the system layout and drop in your SSH key and git identity:
-
-```bash
-mkdir -p ~/.avm/system/credentials/ssh
-mkdir -p ~/.avm/system/credentials/git
-mkdir -p ~/.avm/system/claude
-
-cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub ~/.ssh/config ~/.avm/system/credentials/ssh/
-cp ~/.gitconfig ~/.avm/system/credentials/git/config
-```
-
-These are mounted into every container. Claude Code state
-(`~/.avm/system/claude/` and `~/.avm/system/claude.json`) fills itself
-in the first time you run `claude` inside a container — you can leave
-those empty to start.
-
-### 2. Create your Dockerfile
-
-`~/.avm/Dockerfile` layers your toolchain on top of the `avm-core`
-image — Go, Python, Docker CLI, language-specific tools, etc. It runs
-during `avm provision` as a standard `docker build`.
-
-Copy the provided example to get started:
+### 1. Seed credentials and Claude state
 
 ```bash
-cp examples/Dockerfile ~/.avm/Dockerfile
+mkdir -p ~/.avm/volumes/ssh ~/.avm/volumes/git ~/.avm/volumes/claude
+touch ~/.avm/volumes/claude.json
+
+cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub ~/.ssh/config ~/.avm/volumes/ssh/
+cp ~/.gitconfig ~/.avm/volumes/git/config
 ```
 
-Then edit `~/.avm/Dockerfile` to match your stack. The example
-reproduces a Go + Node + Docker environment; delete what you don't need.
+These directories back the bind mounts declared in the Claude-defaults
+`config.yaml` below. Claude Code state (`~/.avm/volumes/claude/` and
+`~/.avm/volumes/claude.json`) fills itself the first time you run
+`claude` inside a container — leave them empty to start.
+
+### 2. Drop in the Claude defaults
+
+```bash
+cp <avm-repo>/examples/Dockerfile  ~/.avm/Dockerfile
+cp <avm-repo>/examples/config.yaml ~/.avm/config.yaml
+```
+
+`examples/Dockerfile` ships a reference toolchain (pnpm, Python, Go,
+Buf, Atlas, Task, etc.) with a clearly-labelled Claude Code block at
+the bottom. `examples/config.yaml` wires up the matching mounts
+(`ssh`, `git`, `claude`, `claude.json`), points `agents_md` at
+`~/CLAUDE.md`, `skills_dir` at `~/.claude/skills`, and enables the
+Claude desktop and notifications integrations. Edit both files to
+match your stack and which integrations you want.
 
 If your Dockerfile needs to `COPY` files, place them in
 `~/.avm/build-context/` — that directory is used as the Docker build
@@ -110,44 +114,17 @@ This builds two images: `avm-core:latest` (from
 your `~/.avm/Dockerfile`). Docker layer caching makes subsequent
 rebuilds fast — only changed layers are rebuilt.
 
-### 4. (Optional) Declare mounts and per-repo symlinks
-
-Create `~/.avm/config.yaml` to declare bind mounts and per-repo
-symlinks. The file is optional — without it, containers come up with
-system mounts only.
-
-```yaml
-# ~/.avm/config.yaml
-
-# Bind mounts applied to every session container on `avm create`.
-# source is relative to ~/.avm/volumes/
-# target is relative to /home/agent/ (or absolute if starting with /)
-volumes:
-  - pnpm-store:~/.local/share/pnpm/store
-  - go-build:~/.cache/go-build
-  - cargo:~/.cargo
-
-# Per-repo config, applied by `avm-bridge link` inside the container after
-# the agent clones a repo. source is relative to ~/.avm/files/.
-repos:
-  operator-ui:
-    symlinks:
-      - envs/operator-ui.env:.env
-  alcova-backend:
-    symlinks:
-      - envs/alcova-backend.env:.env
-      - configs/alcova-backend/local.yml:config/local.yml
-```
-
-Populate the source directories alongside the config:
+### 4. Start your first session
 
 ```bash
-mkdir -p ~/.avm/volumes/pnpm-store ~/.avm/volumes/go-build ~/.avm/volumes/cargo
-mkdir -p ~/.avm/files/envs ~/.avm/files/configs/alcova-backend
-# ... drop your .env / config files into ~/.avm/files/
+avm create --attach
 ```
 
-### 5. (Optional) Populate mirrors
+This creates a new container from the `avm-user` image, mounts
+credentials and volumes, applies post-creation setup, and drops you into
+the container.
+
+### 5. (Optional) Populate mirrors and per-repo overlays
 
 For faster clones of large repos, create bare mirrors:
 
@@ -159,15 +136,42 @@ Refresh with `git -C ~/.avm/mirrors/<repo>.git fetch --all --prune`. The
 agent inside the container can then run `avm-bridge clone <repo>` (which
 resolves the mirror automatically) for near-instant clones.
 
-### 6. Start your first session
+To inject env files or config overrides into specific repos as they're
+cloned, declare them under `repos:` in `~/.avm/config.yaml` and drop the
+source files under `~/.avm/files/`:
 
-```bash
-avm create --attach
+```yaml
+repos:
+  my-service:
+    symlinks:
+      - envs/my-service.env:.env
+      - configs/my-service/local.yml:config/local.yml
 ```
 
-This creates a new container from the `avm-user` image, mounts
-credentials and volumes, applies post-creation setup, and drops you into
-the container.
+```bash
+mkdir -p ~/.avm/files/envs ~/.avm/files/configs/my-service
+# ... drop your .env / config files into ~/.avm/files/
+```
+
+The next `avm-bridge clone <repo>` (or `avm-bridge link` from inside a
+working copy) applies the symlinks.
+
+## Using a different agent harness
+
+avm's core image installs no specific agent — that's a Dockerfile
+decision. To swap Claude for another harness:
+
+- Strip or replace the "Claude Code" block in `~/.avm/Dockerfile` with
+  your harness's install commands.
+- In `~/.avm/config.yaml`, remove the `claude:~/.claude` and
+  `claude.json:~/.claude.json` volumes (or replace with your harness's
+  state paths).
+- Set `skills_dir` to your harness's skills directory (or remove the
+  key to skip the symlink step).
+- Adjust `agents_md` if your harness reads `AGENTS.md` (the default)
+  vs. a different file name. Use a list to mount it at multiple paths.
+- Disable `integrations.claude_notifications` and
+  `integrations.claude_desktop` unless you're keeping Claude alongside.
 
 ## Commands
 
@@ -230,27 +234,27 @@ which ship as part of the CLI.
 
 ```
 ~/.avm/
-├── config.yaml           # user-edited: volumes + per-repo config (optional)
+├── config.yaml           # user-edited: agents_md, skills_dir, integrations, volumes, repos, services
+├── state.json            # avm CLI preferences (currently: SSH-config Include install prompt)
 ├── Dockerfile            # user-written: layers toolchain on avm-core (required for `avm provision`)
 ├── build-context/        # Docker build context for ~/.avm/Dockerfile (COPY sources go here)
+├── AGENTS.md             # generated every command from templates/agents.md; mounted into each container per `agents_md`
 ├── ssh_config            # managed by `avm ssh-config`; included from ~/.ssh/config when installed
-├── state.json            # avm CLI preferences (e.g. remembered install-prompt decision)
 ├── daemon/               # managed by avm daemon
 │   ├── host.secret       # host CLI auth (never mounted into containers)
 │   ├── state.json        # daemon-internal state
 │   ├── daemon.pid        # daemon PID
 │   └── daemon.log        # daemon logs
-├── system/               # fixed layout; mounted into every session container
-│   ├── credentials/
-│   │   ├── ssh/          # → ~/.ssh in container (bind mount)
-│   │   └── git/
-│   │       └── config     # → ~/.config/git/config in container (bind mount)
-│   ├── claude/           # → ~/.claude in container (bind mount)
-│   └── claude.json       # → ~/.claude.json in container (file bind mount)
 ├── mirrors/              # → ~/mirrors in container (bind mount)
-├── volumes/              # bind sources declared in config.yaml
+├── volumes/              # bind sources declared under `volumes:` in config.yaml
 └── files/                # symlink sources for `avm-bridge link` (→ ~/.avm-files in container)
 ```
+
+With the Claude-defaults `config.yaml`, `volumes/` contains `ssh/`,
+`git/`, `claude/`, and `claude.json` — the credential and Claude-state
+bind sources. Nothing under `~/.avm/` has a fixed layout other than
+`daemon/` and `mirrors/`; everything else is what you declare in
+`config.yaml`.
 
 ## How `avm create` / `avm start` Work
 
@@ -264,11 +268,12 @@ difference is what happens first:
 
 Both then run `applyPostCreationSetup`, which persists `AVM_*` env vars
 into `/etc/environment` (so SSH sessions inherit them), symlinks
-image-shipped skills into `~/.claude/skills/`, and ensures `avm-bridge`
-is executable. Per-repo symlinks are no longer baked into the
-container — they're applied on demand by `avm-bridge link` (the bridge
-fetches the current `config.yaml` from the daemon at call time, so
-edits take effect without `avm start`).
+image-shipped skills (`/opt/avm/skills/*`) into each `skills_dir`
+declared in `config.yaml`, and ensures `avm-bridge` is executable.
+Per-repo symlinks are no longer baked into the container — they're
+applied on demand by `avm-bridge link` (the bridge fetches the current
+`config.yaml` from the daemon at call time, so edits take effect
+without `avm start`).
 
 Mounts are established at container creation time and persist across
 `docker stop` / `docker start`. The container only sees explicitly
@@ -280,8 +285,8 @@ mounted paths — no lockdown step is needed.
 agent's job, inside the container, via `avm-bridge clone <name>`. The
 CLI's job is to make the tools available: mirrors at `~/mirrors/`,
 overlay files at `~/.avm-files/`, and `avm-bridge` on the PATH. The
-in-container `CLAUDE.md` (seeded from `templates/vm-claude.md`) tells
-the agent how to use them.
+in-container `AGENTS.md` (generated from `templates/agents.md`, mounted
+per the `agents_md` config) tells the agent how to use them.
 
 ## Customizing
 
@@ -326,33 +331,73 @@ Then drop `~/.avm/files/envs/my-new-service.env` in place. The next
 `avm create` picks up the change. Existing containers get the update
 on `avm start`.
 
-### Customizing in-container Claude behavior
+### Customizing the in-container guidance file (AGENTS.md / CLAUDE.md)
 
-`~/.avm/system/claude/CLAUDE.md` is loaded automatically by Claude Code
-inside every container. On first session creation it's seeded from
-`templates/vm-claude.md`. Edit it freely afterwards — the seed is never
-re-copied over an existing file.
+`avm` regenerates `~/.avm/AGENTS.md` on every command (from
+`templates/agents.md`, plus a dynamic services section) and bind-mounts
+it into each container. The default in-container path is
+`~/AGENTS.md`. Override with `agents_md` in `~/.avm/config.yaml`:
+
+```yaml
+agents_md: ~/CLAUDE.md                  # single target
+agents_md: [~/AGENTS.md, ~/CLAUDE.md]   # multiple, e.g. when running
+                                        # both Claude and another harness
+```
+
+Set `agents_md: []` to skip the mount entirely.
+
+Because `~/.avm/AGENTS.md` is regenerated on every command, do not
+hand-edit it — your changes will be overwritten. Put persistent
+in-container instructions in your harness's own user-level file
+(e.g. `~/.claude/CLAUDE.md` for Claude).
+
+### Customizing the in-container skills directory
+
+The `avm-*` skills (`avm-repos`, `avm-docker`, `avm-services`,
+`avm-editor`) ship inside the image at `/opt/avm/skills/`. Set
+`skills_dir` to have them symlinked into one or more harness-specific
+skill paths:
+
+```yaml
+skills_dir: ~/.claude/skills
+skills_dir: [~/.claude/skills, ~/.codex/skills]
+```
+
+Unset → no symlinks created (the skills are still readable at
+`/opt/avm/skills/` if you want to reference them manually).
 
 ### Claude desktop integration
 
-`avm ssh-config install` offers to register avm containers as SSH
-environments in the Claude desktop app's environment dropdown. When
-enabled, every container with an SSH port is mirrored into
+When `integrations.claude_desktop: true` in `~/.avm/config.yaml`,
+`avm ssh-config` mirrors every container with an SSH port into
 `~/.claude/settings.json` `sshConfigs` as it's created or destroyed.
-The desktop app picks the entries up automatically; from there you can
-start a Claude Code session that runs inside the avm container with one
-click.
+The Claude desktop app picks the entries up automatically; from there
+you can start a Claude Code session that runs inside the avm container
+with one click.
 
-The integration is opt-in (separate prompt and state flag from the SSH
-config Include) and is removed by `avm ssh-config uninstall`. Pass
-`--desktop` or `--no-desktop` to `install` to skip the prompt
-non-interactively.
+`avm ssh-config install --desktop` enables the integration and applies
+the initial sync. `avm ssh-config install --no-desktop` disables it
+explicitly. The toggle lives in `config.yaml` — edit it there to flip
+the integration on/off without rerunning `install`. `avm ssh-config
+uninstall` removes the SSH `Include` line and tears down any avm entries
+from `~/.claude/settings.json`.
 
-v1 only registers containers with the auto-generated `avm-<5 char>`
-name format — user-named containers (`avm create my-feature`) are not
+Only containers with the auto-generated `avm-<5 char>` name are
+registered — user-named containers (`avm create my-feature`) are not
 added to the dropdown. All other top-level keys in
 `~/.claude/settings.json` (hooks, permissions, plugins) and any
 non-avm `sshConfigs` entries are preserved verbatim across syncs.
+
+### Claude notification hooks
+
+When `integrations.claude_notifications: true` in `~/.avm/config.yaml`,
+`avm notify install` writes Claude `Notification` and `Stop` hooks into
+`~/.claude/settings.json` so the host gets a sound + macOS banner when
+the in-container Claude Code needs attention or finishes a turn. Tune
+the sounds via the `notifications:` block in `config.yaml`.
+
+Disable by setting `integrations.claude_notifications: false` and
+running `avm notify uninstall` to clean up the hooks.
 
 ## Host Services
 
@@ -430,10 +475,10 @@ Dev Containers attached-container protocol (no host SSH config needed).
   issue and rerun `avm provision`. Docker layer caching means only
   failed layers are rebuilt.
 - **Login doesn't persist across containers** — make sure
-  `~/.avm/system/claude.json` exists on the host. It's mounted as a
-  file into every container; without it, Claude Code runs first-run
-  setup every time. `avm create` creates an empty file if one isn't
-  there.
+  `~/.avm/volumes/claude.json` exists on the host (`touch
+  ~/.avm/volumes/claude.json`). It's mounted as a file into every
+  container per the `claude.json:~/.claude.json` volume in the Claude
+  defaults; without it, Claude Code runs first-run setup every time.
 - **`pnpm install` inside the container is slow every time** — declare a
   pnpm-store volume in `~/.avm/config.yaml`:
   `- pnpm-store:~/.local/share/pnpm/store`, and create

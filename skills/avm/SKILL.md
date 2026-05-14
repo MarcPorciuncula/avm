@@ -164,33 +164,43 @@ Use `avm ssh --print-command <id>` to get the raw SSH command for
 pasting into other tools, or `avm ssh --print-config <id>` to get an
 SSH config block.
 
-Running `avm ssh-config install` (or accepting the prompt on first
-`avm create`) wires an `Include ~/.avm/ssh_config` line into the user's
-`~/.ssh/config`, so `ssh avm-<id>` works from any terminal without
-extra flags. Useful for tools that key off the literal `ssh` command
-(e.g. Warp's terminal "warpify" detection, Cursor remote-SSH).
+Running `avm ssh-config install` wires an `Include ~/.avm/ssh_config`
+line into the user's `~/.ssh/config`, so `ssh avm-<id>` works from any
+terminal without extra flags. Useful for tools that key off the literal
+`ssh` command (e.g. Warp's terminal "warpify" detection, Cursor
+remote-SSH).
 
-It also offers to register avm containers in the Claude desktop app's
-environment dropdown (writes `sshConfigs` entries into
-`~/.claude/settings.json`). The two prompts are independent — the user
-can accept either, both, or neither. Pass `--desktop` / `--no-desktop`
-to skip the desktop prompt non-interactively.
+The Claude desktop dropdown integration is controlled by
+`integrations.claude_desktop` in `~/.avm/config.yaml`. When true,
+`avm ssh-config` mirrors avm containers into `~/.claude/settings.json`
+`sshConfigs` as they're created or destroyed. Pass `--desktop` to
+`avm ssh-config install` to flip the config flag on (and apply the
+initial sync), `--no-desktop` to flip it off. Editing
+`integrations.claude_desktop` in `config.yaml` directly is also fine.
 
 Containers without an SSH port assigned must be recreated with `avm create`.
 
 ## Inside the Container
 
-Once attached, the user (or Claude inside the container) sees:
+Once attached, the user (or the in-container agent) sees:
 
-- `~/work/` — project repos (you clone them here; persists across stop/start)
+- `~/work/` — project repos (the agent clones them here; persists across stop/start)
 - `~/mirrors/` — bare git mirrors for fast clones (mounted from host)
 - `~/.avm-files/` — overlay files for `avm-bridge link` to symlink from (read-only in practice)
-- `~/.ssh/`, `~/.claude/`, `~/.claude.json`, `~/.config/git/config` — credentials and settings
-- `clauded` — alias for `claude --dangerously-skip-permissions`
+- `~/AGENTS.md` (and `~/CLAUDE.md` when the example `config.yaml` sets
+  `agents_md: ~/CLAUDE.md`) — generated guidance from
+  `~/.avm/AGENTS.md`. Mount points depend on the user's `agents_md`
+  config.
+- Whatever `volumes:` declares in `~/.avm/config.yaml`. The Claude
+  defaults mount `~/.ssh`, `~/.config/git/config`, `~/.claude/`, and
+  `~/.claude.json`; non-Claude harnesses will look different.
 - `avm-bridge` — CLI for coordinating with the host daemon. Includes
   `avm-bridge clone <name>` and `avm-bridge link` for repo setup, plus
   service control and host editor/browser integration. See the
   avm-repos, avm-services, and avm-editor skills inside the container.
+- `clauded` — alias for `claude --dangerously-skip-permissions` (provided
+  by the Claude block in `examples/Dockerfile`; absent if you removed
+  that block).
 - Docker (DinD) — run `start-dockerd` inside the container, then `docker build`, `docker run`, etc. work normally
 
 The container only sees explicitly mounted paths. There is no access to
@@ -199,23 +209,33 @@ the host filesystem beyond what `avm` mounts.
 ## First-time setup on a fresh machine
 
 If the user says "set up avm" or the CLI errors out because `~/.avm/`
-is empty, walk them through populating it. Everything `avm` needs at
-runtime lives under `~/.avm/`.
+is empty, walk them through populating it. The defaults reproduce
+avm's Claude Code flavor: Claude in the image, credentials and Claude
+state mounted in, AGENTS.md presented as CLAUDE.md, and Claude desktop
++ notifications wired up. For other harnesses, see the README's
+"Using a different agent harness" section.
 
-Minimum for a working session:
+Minimum for a working Claude session:
 
-1. **SSH key and config** at `~/.avm/system/credentials/ssh/`. Offer to
-   generate a new `id_ed25519` if they don't have one to dedicate to
-   agent containers, or copy an existing one from `~/.ssh/`. The
-   directory is mounted as `~/.ssh` inside every container, so treat it
-   as the agent's GitHub identity.
-2. **Git identity** at `~/.avm/system/credentials/git/config`.
-   Either copy `~/.gitconfig` or write a minimal one with `user.name`
-   and `user.email`.
-3. **Dockerfile** at `~/.avm/Dockerfile`. Start from
-   `<avm-repo>/examples/Dockerfile` (copy and edit). This layers your
-   toolchain on top of the `avm-core:latest` image — Go, Docker CLI,
-   language runtimes, etc. Place any files needed by the Dockerfile in
+1. **Drop in the Claude defaults**:
+   - `cp <avm-repo>/examples/Dockerfile  ~/.avm/Dockerfile`
+   - `cp <avm-repo>/examples/config.yaml ~/.avm/config.yaml`
+2. **Seed credentials and Claude state**:
+   - `mkdir -p ~/.avm/volumes/ssh ~/.avm/volumes/git ~/.avm/volumes/claude`
+   - `touch ~/.avm/volumes/claude.json`
+   - SSH key+config into `~/.avm/volumes/ssh/`. Offer to generate a
+     fresh `id_ed25519` dedicated to agent containers, or copy an
+     existing one from `~/.ssh/`. This is the agent's GitHub identity.
+   - Git identity into `~/.avm/volumes/git/config`. Either copy
+     `~/.gitconfig` or write a minimal one with `user.name` /
+     `user.email`.
+   - Leave `~/.avm/volumes/claude/` and `~/.avm/volumes/claude.json`
+     empty — Claude Code fills them on first run inside a container.
+3. **Edit `~/.avm/Dockerfile`** to match the user's stack. The example
+   ships pnpm, Python, Go, Buf, Atlas, Task, golangci-lint, staticcheck,
+   Docker CLI, and Claude Code. Drop anything they don't need; keep
+   the labelled Claude Code block at the bottom unless they're using a
+   different harness. Place any files needed by the Dockerfile in
    `~/.avm/build-context/`.
 4. **Run `avm provision`** to build the Docker images (core + user).
    Layer caching makes subsequent rebuilds fast.
@@ -227,13 +247,27 @@ Optional but recommended:
   `git clone --mirror git@github.com:<owner>/<repo>.git
   ~/.avm/mirrors/<repo>.git`. Fast reference-clones inside every
   container.
-- **`~/.avm/config.yaml`** declaring bind-mount volumes (caches, package
-  stores) and per-repo symlinks (env files, config overrides). See the
-  README for the schema. Drop source files under `~/.avm/volumes/` and
-  `~/.avm/files/`.
+- **Per-repo overlays** declared under `repos:` in
+  `~/.avm/config.yaml`, with source files under `~/.avm/files/`. See
+  the README for the schema.
+- **More caches** under `volumes:` in `~/.avm/config.yaml`
+  (`pnpm-store`, `go-build`, etc.). Source dirs live under
+  `~/.avm/volumes/`.
 
 Don't create `~/.avm/` directories the user won't populate. `avm create`
 creates what it needs on demand.
+
+## Migration from baked-in Claude defaults
+
+If `avm` prints "Legacy ~/.avm/system layout detected" or you see
+files moved under `~/.avm/volumes/`, this is the one-time migration
+from the Claude-baked-in avm to the agent-agnostic avm. The CLI's
+`migrateLegacyLayout` handles the file moves automatically, but
+`~/.avm/config.yaml` still needs a few additions before the previous
+behaviour is fully restored. Read
+`docs/migration-to-agent-harness-decoupling.md` for the structured
+runbook — apply the suggested `config.yaml` additions on the user's
+behalf, then verify with a test `avm create --attach`.
 
 ## Host services and the daemon
 
@@ -374,5 +408,7 @@ dependency and note it in a comment.
   `avm start <id>` if the user wants to resume it.
 - **`avm start <id>` fails with "already running"**: use
   `avm attach <id>` instead.
-- **Claude Code inside the container runs onboarding every time**: check
-  that `~/.avm/system/claude.json` exists on the host.
+- **Claude Code inside the container runs onboarding every time**: with
+  the Claude-defaults `config.yaml`, ensure `~/.avm/volumes/claude.json`
+  exists on the host (`touch ~/.avm/volumes/claude.json`). The file
+  bind-mount needs the source to exist before `docker run` succeeds.

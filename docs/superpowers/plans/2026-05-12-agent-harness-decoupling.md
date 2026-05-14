@@ -1038,8 +1038,20 @@ Dropped `desktopConfig` and `notifications` from `AvmState`; install/uninstall p
 ---
 
 ## Task 6: Documentation rewrite
-- [ ] Status
+- [x] Status
 Depends on: Tasks 2, 3, 4, 5
+
+### Result
+
+Rewrote README sections (First-Time Setup, Host Data Layout,
+Customizing) around the new config primitives, updated
+skills/avm/SKILL.md first-time-setup + in-container layout + desktop
+integration phrasing, made templates/agents.md's "don't edit" sentence
+harness-agnostic, and added docs/migration-to-agent-harness-decoupling.md
+as a runbook for a host agent to apply the post-upgrade config.yaml
+additions on the user's behalf. `grep -ri "CLAUDE.md" templates/
+skills/` returns only intentional references explaining the
+`agents_md` redirect. Commit: 519110a
 
 ### Scope
 
