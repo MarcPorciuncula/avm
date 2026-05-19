@@ -21,7 +21,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
       > /dev/null && \
     rm -rf /var/lib/apt/lists/*
 
-# --- Node.js (via NodeSource) — required by Claude Code ---
+# --- Node.js (via NodeSource) — broadly useful in the core image ---
 
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1 && \
     apt-get install -y -qq nodejs > /dev/null && \
@@ -47,10 +47,7 @@ RUN apt-get update -qq && \
     echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-sshd.sh' > /etc/sudoers.d/sshd && \
     chmod 440 /etc/sudoers.d/dockerd /etc/sudoers.d/sshd
 
-# --- Claude Code (must run as agent — installs to ~/.claude/) ---
-
 USER agent
-RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # --- Git defaults (use XDG path so ~/.gitconfig doesn't shadow bind mounts) ---
 RUN mkdir -p ~/.config/git && \
@@ -61,10 +58,9 @@ RUN mkdir -p ~/.config/git && \
 
 RUN mkdir -p ~/work
 
-# --- Shell aliases ---
+# --- Shell profile ---
 
-RUN echo 'alias clauded="claude --dangerously-skip-permissions"' >> ~/.bashrc && \
-    echo 'source /opt/avm/helpers.sh' >> ~/.profile
+RUN echo 'source /opt/avm/helpers.sh' >> ~/.profile
 
 # --- Install helpers library ---
 
@@ -83,10 +79,8 @@ RUN chmod 755 /opt/avm/start-sshd.sh
 COPY templates/xdg-open.sh /usr/local/bin/xdg-open
 RUN chmod 755 /usr/local/bin/xdg-open
 
-# --- In-container CLAUDE.md and skills ---
+# --- In-container skills ---
 
-COPY templates/vm-claude.md /home/agent/CLAUDE.md
-RUN chown agent:agent /home/agent/CLAUDE.md
 COPY templates/skills/ /opt/avm/skills/
 
 USER agent

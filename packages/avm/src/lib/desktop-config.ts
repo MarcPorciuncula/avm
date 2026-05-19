@@ -8,7 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import os from "node:os";
 import { listAvmVms, type VmInfo } from "./vm.ts";
-import { readState, updateState } from "./state.ts";
+import { setConfigIntegration } from "./config-file.ts";
 
 const claudeSettingsFile = join(os.homedir(), ".claude", "settings.json");
 
@@ -106,41 +106,29 @@ export async function syncDesktopConfig(): Promise<void> {
   writeSettings(settings);
 }
 
-export interface InstallDesktopResult {
-  status: "installed" | "already";
-}
-
 /**
- * Sync first, then flip the install flag — if the sync throws, the user
- * retries cleanly and gets the canonical "installed" status.
+ * Set `integrations.claude_desktop: true` in config.yaml and sync
+ * `~/.claude/settings.json` so the user's desktop sees current containers.
  */
-export async function installDesktopConfig(): Promise<InstallDesktopResult> {
-  const before = readState().desktopConfig?.installPrompt;
+export async function installDesktopConfig(): Promise<void> {
+  setConfigIntegration("claude_desktop", true);
   await syncDesktopConfig();
-  updateState({ desktopConfig: { installPrompt: "installed" } });
-  return { status: before === "installed" ? "already" : "installed" };
-}
-
-export interface UninstallDesktopResult {
-  status: "uninstalled" | "not-installed";
 }
 
 /**
- * Drop avm-owned entries from `sshConfigs`, clear the install flag.
- * Leaves the rest of settings.json (other keys, non-avm sshConfigs) intact.
+ * Drop avm-owned entries from `~/.claude/settings.json` (uninstall is total)
+ * and clear `integrations.claude_desktop` in config.yaml. Leaves the rest of
+ * settings.json (other keys, non-avm sshConfigs) intact.
  */
-export async function uninstallDesktopConfig(): Promise<UninstallDesktopResult> {
-  let dropped = 0;
+export async function uninstallDesktopConfig(): Promise<void> {
   if (existsSync(claudeSettingsFile)) {
     const settings = readSettings();
     const existing = settings.sshConfigs ?? [];
     const preserved = existing.filter((e) => !isAvmOwnedEntry(e));
-    dropped = existing.length - preserved.length;
-    if (dropped > 0) {
+    if (existing.length - preserved.length > 0) {
       settings.sshConfigs = preserved;
       writeSettings(settings);
     }
   }
-  updateState({ desktopConfig: { installPrompt: undefined } });
-  return { status: dropped > 0 ? "uninstalled" : "not-installed" };
+  setConfigIntegration("claude_desktop", false);
 }

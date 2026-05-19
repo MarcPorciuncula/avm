@@ -8,8 +8,8 @@ import {
 import { dirname, join } from "node:path";
 import os from "node:os";
 import { avmSshConfigFile } from "./config.ts";
+import { loadAvmConfig } from "./config-file.ts";
 import { listAvmVms, type VmInfo } from "./vm.ts";
-import { readState } from "./state.ts";
 import { syncDesktopConfig } from "./desktop-config.ts";
 
 const MANAGED_BANNER =
@@ -134,11 +134,21 @@ export async function uninstallInclude(): Promise<UninstallResult> {
 /**
  * Run all host-integration syncs after a container lifecycle event.
  * Always syncs ~/.avm/ssh_config; syncs ~/.claude/settings.json only
- * when the user has opted in.
+ * when the user has opted in via `integrations.claude_desktop`.
  */
 export async function syncHostIntegrations(): Promise<void> {
   await syncSshConfig();
-  if (readState().desktopConfig?.installPrompt === "installed") {
+  let claudeDesktopEnabled: boolean;
+  try {
+    claudeDesktopEnabled = loadAvmConfig().integrations.claude_desktop;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `    [warn] skipping Claude desktop sync — ~/.avm/config.yaml could not be parsed: ${message}`,
+    );
+    return;
+  }
+  if (claudeDesktopEnabled) {
     await syncDesktopConfig();
   }
 }

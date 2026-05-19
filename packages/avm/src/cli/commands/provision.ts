@@ -1,7 +1,6 @@
 import { defineCommand } from "citty";
 import { provisionImages, pruneOldUserImages } from "../../lib/image.ts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { maybePromptForInstall } from "./notify.ts";
 
 export const provisionCommand = defineCommand({
   meta: {
@@ -49,8 +48,5 @@ export const provisionCommand = defineCommand({
         }
       }
     }
-
-    // First-run prompt for host notifications. No-op if already answered.
-    await maybePromptForInstall();
   },
 });

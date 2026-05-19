@@ -1,7 +1,10 @@
 /**
- * Pure logic for installing/uninstalling AVM notification hooks in
- * Claude Code's `~/.claude/settings.json` (mounted from
- * `~/.avm/system/claude/settings.json` on the host).
+ * Pure logic for installing/uninstalling AVM notification hooks in the
+ * in-container Claude Code's `~/.claude/settings.json`. The host-side
+ * file backing that path is whichever `volumes:` entry in
+ * `~/.avm/config.yaml` maps to the container's `~/.claude`; avm itself
+ * does not own or fix that path — `cli/commands/notify.ts` resolves it
+ * from config.
  *
  * "AVM entries" are identified by command-prefix matching: any entry
  * whose every hooks[].command starts with `avm-bridge claude-hook ` is

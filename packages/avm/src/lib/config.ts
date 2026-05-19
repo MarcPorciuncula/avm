@@ -24,12 +24,7 @@ export const REPO_ROOT = path.resolve(__dirname, "..");
 
 export const AVM_HOME = path.join(os.homedir(), ".avm");
 
-export const avmSystemDir = path.join(AVM_HOME, "system");
-export const avmSystemSshDir = path.join(avmSystemDir, "credentials/ssh");
-export const avmSystemGitDir = path.join(avmSystemDir, "credentials/git");
-export const avmSystemClaudeDir = path.join(avmSystemDir, "claude");
-export const avmSystemClaudeJsonFile = path.join(avmSystemDir, "claude.json");
-export const avmSystemClaudeMdFile = path.join(avmSystemDir, "CLAUDE.md");
+export const avmAgentsMdFile = path.join(AVM_HOME, "AGENTS.md");
 
 export const avmMirrorsDir = path.join(AVM_HOME, "mirrors");
 export const avmVolumesDir = path.join(AVM_HOME, "volumes");
