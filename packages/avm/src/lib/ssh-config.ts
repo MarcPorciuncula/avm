@@ -138,8 +138,17 @@ export async function uninstallInclude(): Promise<UninstallResult> {
  */
 export async function syncHostIntegrations(): Promise<void> {
   await syncSshConfig();
-  const config = loadAvmConfig();
-  if (config.integrations.claude_desktop) {
+  let claudeDesktopEnabled: boolean;
+  try {
+    claudeDesktopEnabled = loadAvmConfig().integrations.claude_desktop;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `    [warn] skipping Claude desktop sync — ~/.avm/config.yaml could not be parsed: ${message}`,
+    );
+    return;
+  }
+  if (claudeDesktopEnabled) {
     await syncDesktopConfig();
   }
 }
