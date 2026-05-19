@@ -267,13 +267,20 @@ difference is what happens first:
   its mounts baked in from creation).
 
 Both then run `applyPostCreationSetup`, which persists `AVM_*` env vars
-into `/etc/environment` (so SSH sessions inherit them), symlinks
+into `/etc/environment` (so SSH sessions inherit them) and symlinks
 image-shipped skills (`/opt/avm/skills/*`) into each `skills_dir`
-declared in `config.yaml`, and ensures `avm-bridge` is executable.
-Per-repo symlinks are no longer baked into the container — they're
-applied on demand by `avm-bridge link` (the bridge fetches the current
-`config.yaml` from the daemon at call time, so edits take effect
-without `avm start`).
+declared in `config.yaml`. Per-repo symlinks are no longer baked into
+the container — they're applied on demand by `avm-bridge link` (the
+bridge fetches the current `config.yaml` from the daemon at call time,
+so edits take effect without `avm start`).
+
+`avm-bridge` is provided by bind-mounting the host's built `dist/`
+directory read-only at `/opt/avm/dist`, with `/usr/local/bin/avm-bridge`
+a Dockerfile symlink into it. The directory is mounted (rather than the
+single `avm-bridge.mjs` file) so a host `pnpm build` is picked up live:
+a single-file bind mount binds to the host file's inode at `docker run`
+and detaches in every running container when the build replaces the
+file.
 
 Mounts are established at container creation time and persist across
 `docker stop` / `docker start`. The container only sees explicitly

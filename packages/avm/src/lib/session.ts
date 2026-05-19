@@ -23,7 +23,6 @@ import { type AvmConfig, loadAvmConfig } from "./config-file.ts";
 import { ensureDaemonRunning } from "./daemon.ts";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
-const bridgeBin = join(distDir, "avm-bridge.mjs");
 
 /**
  * Register a container with the daemon and return its token.
@@ -210,8 +209,10 @@ function printMigrationHintIfNeeded(allMoves: LegacyMove[]): void {
 
 /**
  * Post-creation setup run after `docker run` or `docker start`.
- * Persists AVM_* env vars for SSH, symlinks image-shipped skills into
- * each configured skills_dir, and ensures avm-bridge is executable.
+ * Persists AVM_* env vars for SSH and symlinks image-shipped skills into
+ * each configured skills_dir. (avm-bridge needs no setup here — it's a
+ * Dockerfile symlink into the read-only dist/ mount, already executable
+ * from the build.)
  */
 export async function applyPostCreationSetup(
   containerName: string,
@@ -239,9 +240,6 @@ export async function applyPostCreationSetup(
       `done`
     }`;
   }
-
-  // --- Make avm-bridge executable ---
-  await $`docker exec -u root ${containerName} chmod +x /usr/local/bin/avm-bridge`;
 }
 
 /**
@@ -289,7 +287,14 @@ export function getDockerMountArgs(config: AvmConfig): string[] {
   const args: string[] = [];
 
   // Fixed avm-machinery mounts.
-  args.push("-v", `${bridgeBin}:/usr/local/bin/avm-bridge`);
+  // Mount the whole built dist/ directory (read-only), not just
+  // avm-bridge.mjs. A single-file bind mount binds to the host file's inode
+  // at `docker run` time, so a host `pnpm build` (tsdown replaces the file)
+  // detaches it in every running container and `avm-bridge` vanishes. A
+  // directory mount resolves files by path on each access, so rebuilds are
+  // picked up live. `/usr/local/bin/avm-bridge` is a symlink into this dir,
+  // created in core.Dockerfile.
+  args.push("-v", `${distDir}:/opt/avm/dist:ro`);
   args.push("-v", `${avmMirrorsDir}:/home/agent/mirrors`);
   args.push("-v", `${avmFilesDir}:/home/agent/.avm-files`);
 
