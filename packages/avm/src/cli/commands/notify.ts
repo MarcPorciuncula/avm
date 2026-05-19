@@ -1,8 +1,8 @@
 import { defineCommand } from "citty";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { avmVolumesDir } from "../../lib/config.ts";
 import {
   loadAvmConfig,
   setConfigIntegration,
@@ -15,11 +15,57 @@ import {
   type ClaudeSettings,
 } from "../../lib/notify-hooks.ts";
 
-const SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
+/**
+ * Resolve a config.yaml volume target the way `getDockerMountArgs` /
+ * `resolveContainerPath` in lib/session.ts does. Replicated inline rather
+ * than imported because session.ts carries heavy deps and commands are
+ * kept independent.
+ */
+function resolveContainerPath(raw: string): string {
+  if (raw.startsWith("/")) return raw;
+  if (raw.startsWith("~/")) return `/home/agent/${raw.slice(2)}`;
+  return `/home/agent/${raw}`;
+}
 
-function loadSettings(): ClaudeSettings {
-  if (!existsSync(SETTINGS_PATH)) return {};
-  const raw = readFileSync(SETTINGS_PATH, "utf-8");
+/**
+ * The avm notify hooks must land in the in-container Claude's
+ * settings.json. In the decoupled model the container's `~/.claude` is
+ * backed by whichever `volumes:` entry maps to `/home/agent/.claude`.
+ * Returns `<that volume's resolved host source>/settings.json`, or
+ * `null` if no volume maps the container's `~/.claude`.
+ */
+function resolveSettingsPath(): string | null {
+  const config = loadAvmConfig();
+  for (const volume of config.volumes) {
+    if (resolveContainerPath(volume.target) !== "/home/agent/.claude") {
+      continue;
+    }
+    const resolvedSource = volume.source.startsWith("/")
+      ? volume.source
+      : join(avmVolumesDir, volume.source);
+    return join(resolvedSource, "settings.json");
+  }
+  return null;
+}
+
+const NO_TARGET_MESSAGE =
+  "avm notify hooks must land in the in-container Claude's settings.json,\n" +
+  "but no config.yaml volume maps the container's ~/.claude. The hooks run\n" +
+  "`avm-bridge`, which only exists inside an avm sandbox — they have no\n" +
+  "effect (and would error) anywhere else, so this command refuses to\n" +
+  "write to a host-side $HOME/.claude.\n" +
+  "\n" +
+  "Declare a volume that backs the container's ~/.claude in\n" +
+  "~/.avm/config.yaml, e.g.:\n" +
+  "\n" +
+  "  volumes:\n" +
+  "    - claude:~/.claude\n" +
+  "\n" +
+  "(see examples/config.yaml). Then re-run this command.";
+
+function loadSettings(settingsPath: string): ClaudeSettings {
+  if (!existsSync(settingsPath)) return {};
+  const raw = readFileSync(settingsPath, "utf-8");
   if (raw.trim().length === 0) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -27,15 +73,15 @@ function loadSettings(): ClaudeSettings {
     return {};
   } catch (err) {
     throw new Error(
-      `Could not parse ${SETTINGS_PATH} as JSON: ${(err as Error).message}\n` +
+      `Could not parse ${settingsPath} as JSON: ${(err as Error).message}\n` +
         `Refusing to overwrite. Fix the file by hand and re-run.`,
     );
   }
 }
 
-function writeSettings(settings: ClaudeSettings): void {
-  mkdirSync(dirname(SETTINGS_PATH), { recursive: true });
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
+function writeSettings(settingsPath: string, settings: ClaudeSettings): void {
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 }
 
 /** Print a settings-load/write error with the original message and exit 1. Use for install/uninstall. */
@@ -51,20 +97,25 @@ const installSub = defineCommand({
     description: "Install host-notification hooks into the in-container Claude settings.",
   },
   async run() {
+    const settingsPath = resolveSettingsPath();
+    if (settingsPath === null) {
+      console.error(NO_TARGET_MESSAGE);
+      process.exit(1);
+    }
     let settings: ClaudeSettings;
     try {
-      settings = loadSettings();
+      settings = loadSettings(settingsPath);
     } catch (err) {
       reportSettingsError(err);
     }
     const next = installHooks(settings);
     try {
-      writeSettings(next);
+      writeSettings(settingsPath, next);
     } catch (err) {
       reportSettingsError(err);
     }
     setConfigIntegration("claude_notifications", true);
-    console.log(`Installed avm notification hooks in ${SETTINGS_PATH}.`);
+    console.log(`Installed avm notification hooks in ${settingsPath}.`);
     console.log("Open the avm container and run `claude` — Notification and Stop will ping the host.");
   },
 });
@@ -75,28 +126,33 @@ const uninstallSub = defineCommand({
     description: "Remove host-notification hooks from the in-container Claude settings.",
   },
   async run() {
+    const settingsPath = resolveSettingsPath();
+    if (settingsPath === null) {
+      console.error(NO_TARGET_MESSAGE);
+      process.exit(1);
+    }
     let settings: ClaudeSettings;
     try {
-      settings = loadSettings();
+      settings = loadSettings(settingsPath);
     } catch (err) {
       reportSettingsError(err);
     }
     const before = countAvmEntries(settings);
 
     if (before === 0) {
-      console.log(`No avm hook entries found in ${SETTINGS_PATH}. Nothing to uninstall.`);
+      console.log(`No avm hook entries found in ${settingsPath}. Nothing to uninstall.`);
       setConfigIntegration("claude_notifications", false);
       return;
     }
 
     const next = uninstallHooks(settings);
     try {
-      writeSettings(next);
+      writeSettings(settingsPath, next);
     } catch (err) {
       reportSettingsError(err);
     }
     setConfigIntegration("claude_notifications", false);
-    console.log(`Removed ${before} avm hook entr${before === 1 ? "y" : "ies"} from ${SETTINGS_PATH}.`);
+    console.log(`Removed ${before} avm hook entr${before === 1 ? "y" : "ies"} from ${settingsPath}.`);
   },
 });
 
@@ -123,20 +179,31 @@ const unmuteSub = defineCommand({
 });
 
 function printStatus(): void {
-  let settings: ClaudeSettings;
-  let parseError: string | null = null;
+  let settingsPath: string | null;
   try {
-    settings = loadSettings();
-  } catch (err) {
-    settings = {};
-    parseError = (err as Error).message;
+    settingsPath = resolveSettingsPath();
+  } catch {
+    // Config invalid/unreadable — treat as no resolvable target; the
+    // config-dependent block below reports the underlying error.
+    settingsPath = null;
   }
-  const installed = countAvmEntries(settings);
 
-  // Config-independent diagnostics first — print regardless of config validity.
-  console.log(`Hook install:    ${installed > 0 ? `installed (${installed} entr${installed === 1 ? "y" : "ies"})` : "not installed"}`);
-  if (parseError) console.log(`                 ${parseError}`);
-  console.log(`Settings file:   ${SETTINGS_PATH}`);
+  if (settingsPath === null) {
+    console.log("Settings file:   (none — no volume maps ~/.claude)");
+  } else {
+    let settings: ClaudeSettings;
+    let parseError: string | null = null;
+    try {
+      settings = loadSettings(settingsPath);
+    } catch (err) {
+      settings = {};
+      parseError = (err as Error).message;
+    }
+    const installed = countAvmEntries(settings);
+    console.log(`Hook install:    ${installed > 0 ? `installed (${installed} entr${installed === 1 ? "y" : "ies"})` : "not installed"}`);
+    if (parseError) console.log(`                 ${parseError}`);
+    console.log(`Settings file:   ${settingsPath}`);
+  }
 
   // Config-dependent: integration flag, master switch + sounds.
   try {
