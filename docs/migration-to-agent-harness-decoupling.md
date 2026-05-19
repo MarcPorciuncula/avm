@@ -8,8 +8,15 @@ the user. **Not** needed for fresh installs (use the README
 
 ## What's automatic
 
-On the next `avm` command after the upgrade, `migrateLegacyLayout`
-runs once and:
+The migration runs from `ensureHostScaffolding`, which fires only on
+`avm create` and `avm start` — **not** on `avm provision`, `avm list`,
+or `avm daemon`. So the first post-upgrade `avm provision` (the natural
+first command, per README "First-Time Setup" step 3) will *not* migrate
+or print the hint; the migration happens the first time you
+`avm create` or `avm start` after upgrading.
+
+On that first `avm create` / `avm start` after the upgrade,
+`migrateLegacyLayout` runs once and:
 
 - moves `~/.avm/system/credentials/ssh` → `~/.avm/volumes/ssh`
 - moves `~/.avm/system/credentials/git` → `~/.avm/volumes/git`
@@ -90,8 +97,11 @@ are short and the answers are easy for the user to recall.
 ## Agent runbook
 
 1. **Detect legacy state.** Trigger conditions (any):
-   - The output of a recent `avm` command contains
+   - The output of a recent `avm create` / `avm start` contains
      `Legacy ~/.avm/system layout detected` or `[migrate] …`.
+     (`avm provision` does not migrate — run `avm create` /
+     `avm start` to trigger it.)
+   - `~/.avm/system/` still exists (migration hasn't run yet).
    - `~/.avm/volumes/{ssh,git}` exist but `~/.avm/config.yaml` doesn't
      declare them under `volumes:`.
 

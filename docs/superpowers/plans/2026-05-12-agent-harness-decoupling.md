@@ -1373,8 +1373,61 @@ content:
 ---
 
 ## Task 7: Manual end-to-end verification
-- [ ] Status
+- [x] Status
 Depends on: Tasks 2, 3, 4, 5, 6
+
+### Result
+
+Ran all ten scenarios under strict environment isolation (temp `$HOME`,
+daemon port 6971-6973, explicit `dcv*` container names, no `--ssh`, no
+bulk ops). The user's running container `avm-edc1c` and daemon (port
+6970) were never touched and remained up throughout. Migration was
+exercised through the real code path (`ensureHostScaffolding` via
+`avm create`), not a scratch harness.
+
+| # | Scenario | Outcome | Note |
+|---|----------|---------|------|
+| 1 | Synthesize legacy state | PASS | Fake `system/` tree built (ssh/git creds, claude state w/ nested projects, claude.json, CLAUDE.md); no config.yaml |
+| 2 | Migration on first command | PASS | All 4 moves logged, content byte-preserved, `system/` removed, legacy CLAUDE.md deleted, `AGENTS.md` generated, hint printed |
+| 3 | Apply hint, re-run | PASS | Hint suppressed both ways: no `system/` (no-op) and `system/` present with all 4 volumes declared (`undeclared.length===0` path) |
+| 4 | Fresh container, Claude defaults | PASS | `~/CLAUDE.md` mounted, 4 avm-* skills symlinked, `claude` v2.1.143, `clauded` alias, creds present, Claude state persisted across clean+recreate |
+| 5 | Fresh install from README | PASS | README "First-Time Setup" steps 1-4 verbatim produced a working container (CLAUDE.md, skills, claude, creds, git identity) |
+| 6 | Different-harness smoke | PASS | `docker inspect` confirms no claude/claude.json/CLAUDE.md bind mounts; `~/AGENTS.md` (not CLAUDE.md), no skills dir; in-container `~/.claude.json` is image-baked, not host state |
+| 7a | `agents_md: []` | PASS | No AGENTS.md/CLAUDE.md bind mount |
+| 7b | Multiple `agents_md` | PASS | `~/AGENTS.md` + `~/CLAUDE.md` both mounted, identical md5 |
+| 7c | Unsafe chars in `agents_md` | PASS | Clear error naming field+file; no container created |
+| 7d | Pre-existing dest blocks move | PASS | "already exists — skipped" log + collision notice; sentinel & existing key not overwritten; legacy left in place |
+| 7e | `claude_desktop:true` hand-edit | PASS | `create` synced settings.json; non-avm entry preserved, avm-owned entry added (only auto-named `avm-<5char>` containers render — by design) |
+| 8 | ssh-config flags | PASS | `install --desktop` flips flag+syncs+Include; `--no-desktop` flips flag, settings.json byte-unchanged, Include kept; `uninstall` drops Include+avm entries, preserves non-avm, clears flag |
+| 9 | Migration runbook walkthrough | PASS | 7-step runbook executed as host agent (yes/yes/yes); careful config edit preserved comments/order; hint gone, CLAUDE.md/skills/creds/claude all correct. Doc gaps found+fixed (below) |
+| 10 | Teardown | PASS | All `dcv*` cleaned, test daemons stopped (6971-6973 free), temp homes removed; user container + 6970 daemon verified untouched |
+
+**Doc gaps found in Scenario 9 (fixed in this commit):**
+`migrateLegacyLayout` runs only via `ensureHostScaffolding`, called by
+`avm create`/`avm start` — NOT `avm provision`/`avm list`/`avm daemon`.
+The migration doc said "on the next `avm` command" and README step 3
+tells users to run `avm provision` first (which won't migrate).
+Corrected `docs/migration-to-agent-harness-decoupling.md` "What's
+automatic" and runbook Step 1 to state migration fires on the first
+`avm create`/`avm start`.
+
+**Isolation breach (no impact on user's running work):** Scenario 5's
+`avm provision` honoured `prune_images: enabled: true` from
+`examples/config.yaml` and pruned the user's original `avm:latest`
+target image (`sha256:a124d00c…`) before it could be re-tagged.
+Docker images are global, not `$HOME`-scoped, and the snapshot/restore
+in rule 5 assumed tag repointing (recoverable) not image deletion
+(not). `avm-core:latest` was never rebuilt (input-hash check) and
+still equals its original ID. The user's running container
+`avm-edc1c` uses `avm:20260510-064946` which the prune *kept* (in
+use) — it is unaffected and still up. Net: the user's `avm:latest`
+tag now points at the test build and the pre-test image is gone; the
+user recovers it by re-running `avm provision`. No running work,
+container, or `~/.avm` state was lost. `prune_images` was disabled in
+all test configs immediately after detection to prevent recurrence.
+
+No SKIPPED scenarios. No FAIL attributable to a branch bug — all
+documented behaviour reproduced.
 
 ### Scope
 
