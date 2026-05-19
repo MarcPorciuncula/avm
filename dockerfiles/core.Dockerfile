@@ -79,6 +79,14 @@ RUN chmod 755 /opt/avm/start-sshd.sh
 COPY templates/xdg-open.sh /usr/local/bin/xdg-open
 RUN chmod 755 /usr/local/bin/xdg-open
 
+# --- avm-bridge on PATH ---
+# The host bind-mounts its built dist/ directory at /opt/avm/dist:ro (see
+# getDockerMountArgs in lib/session.ts). A directory mount keeps this symlink
+# valid across host rebuilds; a single-file mount would bind to the host
+# file's inode at `docker run` and break when `pnpm build` replaces it. The
+# link dangles until the mount is present at run time, which is expected.
+RUN ln -s /opt/avm/dist/avm-bridge.mjs /usr/local/bin/avm-bridge
+
 # --- In-container skills ---
 
 COPY templates/skills/ /opt/avm/skills/
