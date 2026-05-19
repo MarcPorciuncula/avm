@@ -3,6 +3,23 @@
 **Status:** design approved
 **Date:** 2026-05-02
 
+> **Correction (2026-05-19).** This spec is a historical artifact; the
+> note below records a wrong assumption it shipped with — it is not a
+> rewrite. The "Non-goals" item *Self-contained entries* and the
+> *Architecture* section assert that the Claude desktop app's SSH
+> process inherits `StrictHostKeyChecking no` / `UserKnownHostsFile
+> /dev/null` (and the port) from `~/.avm/ssh_config` via the
+> `~/.ssh/config` Include. That is false. The desktop app uses its own
+> SSH client which performs `~/.ssh/known_hosts` host-key verification
+> and does **not** honour those directives (only the system `ssh`
+> binary does, which is why `avm ssh` works but desktop connections
+> failed with "Host denied (verification failed)"). Fixed by adding
+> `packages/avm/src/lib/known-hosts.ts`, which reconciles an
+> avm-managed block in `~/.ssh/known_hosts` from running containers'
+> host keys, gated on the desktop integration. See that module's
+> header comment and README "Claude desktop integration" for the
+> as-built behaviour.
+
 ## Problem
 
 The Claude desktop app supports SSH environments — a "remote machine you

@@ -388,6 +388,18 @@ added to the dropdown. All other top-level keys in
 `~/.claude/settings.json` (hooks, permissions, plugins) and any
 non-avm `sshConfigs` entries are preserved verbatim across syncs.
 
+The desktop app connects with its own SSH client, which performs
+`~/.ssh/known_hosts` host-key verification and ignores the
+`StrictHostKeyChecking no` / `UserKnownHostsFile /dev/null` directives
+in `~/.avm/ssh_config` (those only apply to `avm ssh`, which uses the
+system `ssh` binary). So while the integration is enabled, `avm
+ssh-config` also reconciles a `# >>> avm managed (known_hosts) >>>`
+block in `~/.ssh/known_hosts` with the running containers' host keys.
+Entries for the avm port range (`[localhost]:22000`–`22999`) are
+avm-owned and refreshed on every sync — including recycled ports after
+`avm clean` + recreate; every other line in `~/.ssh/known_hosts` is
+preserved verbatim. `avm ssh-config uninstall` removes the block.
+
 ### Claude notification hooks
 
 When `integrations.claude_notifications: true` in `~/.avm/config.yaml`,
@@ -491,3 +503,11 @@ Dev Containers attached-container protocol (no host SSH config needed).
   resume, or `avm clean <id>` to free it up.
 - **`avm start <id>` fails with "already running"** — the container is
   already up. Use `avm attach <id>` instead.
+- **Claude desktop: "Connection failed: Host denied (verification
+  failed)"** — the container's host key isn't trusted in
+  `~/.ssh/known_hosts`. The desktop integration maintains this
+  automatically, so first ensure it's enabled (`avm ssh-config install
+  --desktop`), then run `avm ssh-config` to re-sync. The container must
+  be running for its key to be scanned. If it persists after a
+  container was recreated, re-sync again — the managed block refreshes
+  the recycled port's key.
