@@ -64,9 +64,14 @@ function computeCoreImageHash(): string {
 
 /** Compute the content hash for the user image build inputs. */
 function computeUserImageHash(): string {
+  // The user image is `FROM avm-core:latest`, so a core rebuild leaves
+  // existing user images layered on top of a stale snapshot. Fold the core
+  // hash in so changes to core.Dockerfile or templates/ also invalidate the
+  // user image.
+  const core = computeCoreImageHash();
   const df = hashFile(USER_DOCKERFILE);
   const ctx = hashDirectory(USER_BUILD_CONTEXT);
-  return createHash("sha256").update(df).update(ctx).digest("hex");
+  return createHash("sha256").update(core).update(df).update(ctx).digest("hex");
 }
 
 /**
