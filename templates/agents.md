@@ -3,9 +3,12 @@
 You are running inside an `avm` sandbox — a Docker container with full
 autonomy. Only explicitly mounted paths from the host are visible.
 
-Do your work in `~/work/`. To clone repos, consult the avm-repos skill
-before continuing. To use Docker, consult the avm-docker skill before
-continuing. To use host services, consult the avm-services skill.
+Do your work in `~/work/`. To clone a repo, create a git worktree, or
+set up a workspace, consult the avm-repos skill before continuing. Repo
+env files, secrets, and config overrides are provided as host-managed
+symlinks that you apply with `avm-bridge link`; a fresh clone or
+worktree has none until you run it. To use Docker, consult the
+avm-docker skill before continuing. To use host services, consult the avm-services skill.
 When the user asks you to open a file in their editor, consult the
 avm-editor skill.
 
