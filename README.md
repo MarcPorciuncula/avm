@@ -389,11 +389,10 @@ the integration on/off without rerunning `install`. `avm ssh-config
 uninstall` removes the SSH `Include` line and tears down any avm entries
 from `~/.claude/settings.json`.
 
-Only containers with the auto-generated `avm-<5 char>` name are
-registered — user-named containers (`avm create my-feature`) are not
-added to the dropdown. All other top-level keys in
-`~/.claude/settings.json` (hooks, permissions, plugins) and any
-non-avm `sshConfigs` entries are preserved verbatim across syncs.
+Both auto-generated and user-named containers (`avm create my-feature`)
+are registered. All other top-level keys in `~/.claude/settings.json`
+(hooks, permissions, plugins) and any non-avm `sshConfigs` entries are
+preserved verbatim across syncs.
 
 The desktop app connects with its own SSH client, which performs
 `~/.ssh/known_hosts` host-key verification and ignores the
