@@ -16,9 +16,6 @@ import {
 
 const claudeSettingsFile = join(os.homedir(), ".claude", "settings.json");
 
-/** Matches avm-generated container names: `avm-` + 5 lowercase hex/alnum chars. */
-const AVM_OWNED_ID_RE = /^avm-[a-z0-9]{5}$/;
-
 const DESKTOP_START_DIRECTORY = "~/work";
 
 export interface SshConfigEntry {
@@ -36,13 +33,12 @@ interface ClaudeSettings {
 }
 
 /**
- * Render the desktop SSH-config entry for a single VM. Returns null if the
- * VM has no SSH port assigned, or if the name doesn't match the auto-generated
- * `avm-<5char>` shape we treat as owned.
+ * Render the desktop SSH-config entry for a single VM. `listAvmVms()` only
+ * returns containers with avm's Docker label, so both auto-generated and
+ * user-provided names are safe to register here.
  */
 export function renderDesktopEntry(vm: VmInfo): SshConfigEntry | null {
   if (vm.sshPort == null) return null;
-  if (!AVM_OWNED_ID_RE.test(vm.name)) return null;
   return {
     id: vm.name,
     name: vm.name,
@@ -86,12 +82,16 @@ function writeSettings(settings: ClaudeSettings): void {
 }
 
 function isAvmOwnedEntry(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) return false;
+
+  const candidate = entry as Partial<SshConfigEntry>;
   return (
-    typeof entry === "object" &&
-    entry !== null &&
-    "id" in entry &&
-    typeof (entry as { id: unknown }).id === "string" &&
-    AVM_OWNED_ID_RE.test((entry as { id: string }).id)
+    typeof candidate.id === "string" &&
+    candidate.id.startsWith("avm-") &&
+    candidate.id.length > "avm-".length &&
+    candidate.name === candidate.id &&
+    candidate.sshHost === candidate.id &&
+    candidate.startDirectory === DESKTOP_START_DIRECTORY
   );
 }
 
