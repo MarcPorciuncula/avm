@@ -6,6 +6,7 @@ import {
 } from "@avm/shared/bridge-client";
 
 function getClient() {
+  const host = process.env.AVM_HOST ?? "127.0.0.1";
   const port = process.env.AVM_HOST_PORT;
   const token = process.env.AVM_HOST_TOKEN;
 
@@ -18,7 +19,7 @@ function getClient() {
     process.exit(1);
   }
 
-  return createBridgeClient(Number(port), token);
+  return createBridgeClient(host, Number(port), token);
 }
 
 function kindLabel(k: Kind): string {

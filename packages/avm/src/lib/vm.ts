@@ -12,18 +12,19 @@ export interface VmInfo {
   name: string;
   /** Container state: "running" | "stopped" | other. */
   status: string;
-  /** Listening TCP ports (only populated for running containers). */
-  ports: number[];
   /** True if the container's image no longer matches `avm:latest`. */
   outdated: boolean;
   /** SSH port assigned to this container (from label), or null if not set. */
   sshPort: number | null;
+  /** Hostname the macOS host uses to reach this container's sshd. */
+  sshHost: string;
 }
 
 interface DockerPsEntry {
   Names: string;
   State: string;
   Labels: string;
+  Networks: string;
 }
 
 /** Pipe `cmd` to `bash -l` running as root in the given container. */
@@ -68,35 +69,6 @@ export function normalizeVmName(name: string): string {
  */
 export function shortIdOf(vmName: string): string {
   return vmName.startsWith("avm-") ? vmName.slice(4) : vmName;
-}
-
-/**
- * Get TCP ports a running container is listening on.
- * Reads /proc/net/tcp and /proc/net/tcp6 inside the container — state 0A is LISTEN.
- * Returns an empty array for non-running containers or on any error.
- */
-async function getListeningPorts(containerName: string): Promise<number[]> {
-  try {
-    const result =
-      await $`docker exec ${containerName} cat /proc/net/tcp /proc/net/tcp6`.quiet();
-    const ports = new Set<number>();
-    for (const line of result.stdout.split("\n")) {
-      //   sl  local_address rem_address  st ...
-      //    0: 00000000:1F90 00000000:0000 0A ...   (wildcard v4)
-      //    0: 0100007F:AEB3 00000000:0000 0A ...   (loopback v4 — skip)
-      const cols = line.trim().split(/\s+/);
-      if (cols[3] !== "0A") continue;
-      const [hexAddr, hexPort] = cols[1]?.split(":") ?? [];
-      if (!hexAddr || !hexPort) continue;
-      // Only include ports bound to wildcard (0.0.0.0 or ::), skip loopback
-      if (hexAddr !== "00000000" && hexAddr !== "00000000000000000000000000000000")
-        continue;
-      ports.add(parseInt(hexPort, 16));
-    }
-    return [...ports].sort((a, b) => a - b);
-  } catch {
-    return [];
-  }
 }
 
 /**
@@ -153,22 +125,17 @@ export async function listAvmVms(): Promise<VmInfo[]> {
       id: name.startsWith("avm-") ? name.slice(4) : name,
       name,
       status: entry.State === "exited" ? "stopped" : entry.State,
-      ports: [] as number[],
       outdated: false,
       sshPort,
+      sshHost: entry.Networks.split(",").includes("host")
+        ? "localhost"
+        : `${name}.orb.local`,
     };
   });
 
   await Promise.all(
     vms.map(async (vm) => {
       const tasks: Promise<void>[] = [];
-      if (vm.status === "running") {
-        tasks.push(
-          getListeningPorts(vm.name).then((ports) => {
-            vm.ports = ports;
-          }),
-        );
-      }
       if (currentImageId) {
         tasks.push(
           getContainerImageId(vm.name).then((id) => {
@@ -249,12 +216,12 @@ export function resolveVmArg(
 }
 
 /**
- * Try to open a TCP connection to localhost:port. Resolves true on connect,
+ * Try to open a TCP connection to host:port. Resolves true on connect,
  * false on any error (refused, reset, timeout).
  */
-function canConnect(port: number, timeoutMs: number): Promise<boolean> {
+function canConnect(host: string, port: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port });
+    const socket = createConnection({ host, port });
     const done = (ok: boolean) => {
       socket.destroy();
       resolve(ok);
@@ -275,16 +242,20 @@ function canConnect(port: number, timeoutMs: number): Promise<boolean> {
  * network namespace to the host — so start-sshd.sh returning 0 doesn't mean
  * an ssh client on the host can connect yet. Poll until it can.
  */
-export async function ensureSshd(vmName: string, sshPort: number): Promise<void> {
+export async function ensureSshd(
+  vmName: string,
+  sshHost: string,
+  sshPort: number,
+): Promise<void> {
   await $`docker exec -u root -e AVM_SSH_PORT=${sshPort} ${vmName} /opt/avm/start-sshd.sh`;
 
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    if (await canConnect(sshPort, 500)) return;
+    if (await canConnect(sshHost, sshPort, 500)) return;
     await delay(100);
   }
   throw new Error(
-    `sshd started in ${vmName} but port ${sshPort} is not reachable on localhost after 5s.`,
+    `sshd started in ${vmName} but ${sshHost}:${sshPort} is not reachable after 5s.`,
   );
 }
 
@@ -292,7 +263,7 @@ export async function ensureSshd(vmName: string, sshPort: number): Promise<void>
  * SSH into a container. Starts sshd first, then execs ssh.
  * Returns the exit code of the ssh process.
  */
-export function sshToVm(sshPort: number): number {
+export function sshToVm(sshHost: string, sshPort: number): number {
   const result = spawnSync(
     "ssh",
     [
@@ -301,7 +272,7 @@ export function sshToVm(sshPort: number): number {
       "-o", "LogLevel=ERROR",
       "-p", String(sshPort),
       "-t",
-      "agent@localhost",
+      `agent@${sshHost}`,
       "cd ~/work && exec bash -l",
     ],
     { stdio: "inherit" },

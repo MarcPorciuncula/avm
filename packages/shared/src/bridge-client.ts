@@ -50,45 +50,45 @@ function authInterceptor(token: string): Interceptor {
   };
 }
 
-export function createBridgeClient(port: number, token: string) {
+export function createBridgeClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(ServicesService, transport);
 }
 
-export function createBridgeEditorClient(port: number, token: string) {
+export function createBridgeEditorClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(EditorService, transport);
 }
 
-export function createBridgeBrowserClient(port: number, token: string) {
+export function createBridgeBrowserClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(BrowserService, transport);
 }
 
-export function createBridgeNotificationClient(port: number, token: string) {
+export function createBridgeNotificationClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(NotificationService, transport);
 }
 
-export function createBridgeReposClient(port: number, token: string) {
+export function createBridgeReposClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });

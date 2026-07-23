@@ -6,6 +6,7 @@ import {
 import { ConnectError } from "@connectrpc/connect";
 
 function getClient() {
+  const host = process.env.AVM_HOST ?? "127.0.0.1";
   const port = process.env.AVM_HOST_PORT;
   const token = process.env.AVM_HOST_TOKEN;
 
@@ -18,7 +19,7 @@ function getClient() {
     process.exit(0);
   }
 
-  return createBridgeNotificationClient(Number(port), token);
+  return createBridgeNotificationClient(host, Number(port), token);
 }
 
 const EVENT_TO_KIND: Record<string, NotificationKind> = {

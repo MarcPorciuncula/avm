@@ -6,6 +6,7 @@ import { createBridgeReposClient } from "@avm/shared/bridge-client";
 import { ConnectError } from "@connectrpc/connect";
 
 function getClient() {
+  const host = process.env.AVM_HOST ?? "127.0.0.1";
   const port = process.env.AVM_HOST_PORT;
   const token = process.env.AVM_HOST_TOKEN;
 
@@ -18,7 +19,7 @@ function getClient() {
     process.exit(1);
   }
 
-  return createBridgeReposClient(Number(port), token);
+  return createBridgeReposClient(host, Number(port), token);
 }
 
 export const linkCommand = defineCommand({

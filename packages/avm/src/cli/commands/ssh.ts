@@ -56,13 +56,13 @@ export const sshCommand = defineCommand({
     }
 
     if (args["print-command"]) {
-      console.log(`ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p ${vm.sshPort} agent@localhost`);
+      console.log(`ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p ${vm.sshPort} agent@${vm.sshHost}`);
       return;
     }
 
     if (args["print-config"]) {
       console.log(`Host ${vm.name}`);
-      console.log(`  HostName localhost`);
+      console.log(`  HostName ${vm.sshHost}`);
       console.log(`  Port ${vm.sshPort}`);
       console.log(`  User agent`);
       console.log(`  StrictHostKeyChecking no`);
@@ -77,7 +77,7 @@ export const sshCommand = defineCommand({
       process.exit(1);
     }
 
-    await ensureSshd(vm.name, vm.sshPort);
-    process.exit(sshToVm(vm.sshPort));
+    await ensureSshd(vm.name, vm.sshHost, vm.sshPort);
+    process.exit(sshToVm(vm.sshHost, vm.sshPort));
   },
 });

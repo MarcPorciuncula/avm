@@ -3,22 +3,6 @@ import { render, Box, Text } from "ink";
 import { defineCommand } from "citty";
 import { listAvmVms, type VmInfo } from "../../lib/vm.ts";
 
-const EPHEMERAL_START = 32768;
-
-function PortsList({ ports }: { ports: number[] }) {
-  if (ports.length === 0) return null;
-  return (
-    <Text wrap="wrap">
-      {ports.map((port, i) => (
-        <React.Fragment key={port}>
-          {i > 0 && ", "}
-          <Text dimColor={port >= EPHEMERAL_START}>{port}</Text>
-        </React.Fragment>
-      ))}
-    </Text>
-  );
-}
-
 function VmTable({ vms }: { vms: VmInfo[] }) {
   const statusStrings = vms.map((v) =>
     v.outdated ? `${v.status} (outdated)` : v.status,
@@ -41,9 +25,6 @@ function VmTable({ vms }: { vms: VmInfo[] }) {
         <Box width={col.status} flexShrink={0} marginRight={2}>
           <Text bold>STATUS</Text>
         </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text bold>PORTS</Text>
-        </Box>
       </Box>
       {vms.map((vm, i) => (
         <Box key={vm.name}>
@@ -55,9 +36,6 @@ function VmTable({ vms }: { vms: VmInfo[] }) {
           </Box>
           <Box width={col.status} flexShrink={0} marginRight={2}>
             <Text>{statusStrings[i]}</Text>
-          </Box>
-          <Box flexGrow={1} flexShrink={1}>
-            <PortsList ports={vm.ports} />
           </Box>
         </Box>
       ))}

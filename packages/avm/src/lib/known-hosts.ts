@@ -33,11 +33,9 @@ const MARKER_START = "# >>> avm managed (known_hosts) >>>";
 const MARKER_END = "# <<< avm managed (known_hosts) <<<";
 
 /**
- * Ownership boundary. avm assigns every container a deterministic SSH port in
- * 22000–22999 (`sshPortForId`), mapped onto `localhost`. Any
- * `[localhost]:<port>` entry in that range is therefore avm-owned and safe to
- * reconcile — directly analogous to `desktop-config.ts` owning `sshConfigs`
- * entries whose id matches `^avm-[a-z0-9]{5}$`. Everything else in
+ * Ownership boundary. Current containers use their OrbStack domain on port 22.
+ * Legacy containers used `[localhost]:22000`–`[localhost]:22999`. Both shapes
+ * are avm-owned and safe to reconcile. Everything else in
  * `~/.ssh/known_hosts` is preserved verbatim.
  */
 const AVM_PORT_MIN = 22000;
@@ -61,10 +59,9 @@ function writeKnownHosts(contents: string): void {
 }
 
 /**
- * True if `line` is an avm-owned known_hosts entry: every comma-separated host
- * pattern in its first field is `[localhost]:<port>` for a port in avm's
- * reserved range. Mixed lines (an avm pattern alongside unrelated hostnames)
- * and hashed entries (`|1|…`) are intentionally left untouched.
+ * True if `line` is an avm-owned known_hosts entry. Mixed lines (an avm
+ * pattern alongside unrelated hostnames) and hashed entries (`|1|…`) are
+ * intentionally left untouched.
  */
 function isAvmOwnedLine(line: string): boolean {
   const trimmed = line.trim();
@@ -73,6 +70,8 @@ function isAvmOwnedLine(line: string): boolean {
   if (!hostField) return false;
   const patterns = hostField.split(",");
   return patterns.every((pat) => {
+    if (/^avm-[a-z0-9-]+\.orb\.local$/.test(pat)) return true;
+    if (/^\[avm-[a-z0-9-]+\.orb\.local\]:22$/.test(pat)) return true;
     const m = /^\[localhost\]:(\d+)$/.exec(pat);
     if (!m) return false;
     const port = Number(m[1]);
@@ -107,11 +106,11 @@ function stripAvmEntries(text: string): string[] {
  * aborting the whole sync — a missing key for one container must not break
  * `avm create`/`avm clean`.
  */
-async function scanHostKeys(port: number): Promise<string[]> {
+async function scanHostKeys(vm: VmInfo): Promise<string[]> {
   try {
     const result = await $({
       nothrow: true,
-    })`ssh-keyscan -T 5 -p ${port} -t rsa,ecdsa,ed25519 localhost`.quiet();
+    })`ssh-keyscan -T 5 -p ${vm.sshPort as number} -t rsa,ecdsa,ed25519 ${vm.sshHost}`.quiet();
     if (result.exitCode !== 0) return [];
     return result.stdout
       .split("\n")
@@ -135,7 +134,7 @@ export async function reconcileKnownHosts(vms: VmInfo[]): Promise<void> {
   );
 
   const scanned = await Promise.all(
-    targets.map((vm) => scanHostKeys(vm.sshPort as number)),
+    targets.map((vm) => scanHostKeys(vm)),
   );
   // ssh-keyscan returns key types in nondeterministic order; sort so repeated
   // syncs produce a byte-identical block (idempotent, no churn).
