@@ -5,10 +5,18 @@ import { randomBytes } from "node:crypto";
 export interface DaemonState {
   containers: Record<string, { token: string; createdAt: string }>;
   servicePids: Record<string, number>;
+  portForwards: Record<string, PortForwardState>;
+}
+
+export interface PortForwardState {
+  containerName: string;
+  containerPort: number;
+  hostPort: number;
+  createdAt: string;
 }
 
 function emptyState(): DaemonState {
-  return { containers: {}, servicePids: {} };
+  return { containers: {}, servicePids: {}, portForwards: {} };
 }
 
 export class StateStore {
@@ -26,6 +34,7 @@ export class StateStore {
       return {
         containers: parsed.containers ?? {},
         servicePids: parsed.servicePids ?? {},
+        portForwards: parsed.portForwards ?? {},
       };
     } catch {
       return emptyState();
@@ -85,4 +94,33 @@ export class StateStore {
     delete this.state.servicePids[name];
     this.persist();
   }
+
+  /** List every persisted localhost port-forward declaration. */
+  listPortForwards(): PortForwardState[] {
+    return Object.values(this.state.portForwards);
+  }
+
+  /** Persist one forward, keyed by its container and container-side port. */
+  setPortForward(forward: PortForwardState): void {
+    this.state.portForwards[portForwardKey(forward.containerName, forward.containerPort)] = forward;
+    this.persist();
+  }
+
+  /** Remove one persisted forward. */
+  clearPortForward(containerName: string, containerPort: number): void {
+    delete this.state.portForwards[portForwardKey(containerName, containerPort)];
+    this.persist();
+  }
+
+  /** Remove every persisted forward owned by a container. */
+  clearContainerPortForwards(containerName: string): void {
+    for (const [key, forward] of Object.entries(this.state.portForwards)) {
+      if (forward.containerName === containerName) delete this.state.portForwards[key];
+    }
+    this.persist();
+  }
+}
+
+export function portForwardKey(containerName: string, containerPort: number): string {
+  return `${containerName}:${containerPort}`;
 }

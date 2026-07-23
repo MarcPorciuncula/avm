@@ -209,6 +209,8 @@ avm service list          # List declared services and their status
 avm service start <name>  # Start a host service
 avm service stop <name>   # Stop a host service
 avm service status <name> # Check a service's status
+avm port list             # List container ports forwarded to host localhost
+avm port stop <id> <port> # Stop a localhost forward
 ```
 
 IDs are the 5-char suffix after `avm-`. You can pass a prefix — if it
@@ -300,6 +302,26 @@ by host-side Docker through `host.docker.internal`. avm exports that address as
 `AVM_HOST`; avm-bridge uses it to call the host daemon. Tailnet IPs, MagicDNS
 names, and Tailscale Service names are addressed directly — OrbStack follows
 the native macOS VPN and DNS configuration.
+
+For applications that must be opened as `localhost` — commonly OAuth login
+callbacks, strict CORS allowlists, and secure-cookie development setups — an
+in-container agent can ask avm to create a host-local TCP forward:
+
+```bash
+avm-bridge port forward 3000
+avm-bridge port forward 3000 --host-port 3001
+avm-bridge port list
+avm-bridge port stop 3000
+```
+
+The dev server must listen on `0.0.0.0`, not only the container's loopback.
+avm binds the forward only to `127.0.0.1` on the host and prints the exact URL
+to open. It prefers the same host port, but automatically allocates another
+when that port is already used by another container. Forwards survive container
+stop/start and daemon restarts, and are removed when the container is cleaned.
+Use `avm port list` on the host to see all forwards and `avm port stop <id>
+<port>` to stop one. This registry contains only explicitly requested forwards;
+avm does not scan or guess which ports are useful.
 
 ## Cloning Repos From Inside the Container
 

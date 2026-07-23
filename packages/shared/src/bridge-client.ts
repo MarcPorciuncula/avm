@@ -5,6 +5,7 @@ import { EditorService } from "./gen/avm/bridge/v1/editor_pb.js";
 import { BrowserService } from "./gen/avm/bridge/v1/browser_pb.js";
 import { NotificationService } from "./gen/avm/bridge/v1/notification_pb.js";
 import { ReposService } from "./gen/avm/bridge/v1/repos_pb.js";
+import { PortForwardService } from "./gen/avm/bridge/v1/ports_pb.js";
 
 export { ServicesService } from "./gen/avm/bridge/v1/services_pb.js";
 export type {
@@ -42,6 +43,15 @@ export type {
   Repo,
   SymlinkMount,
 } from "./gen/avm/bridge/v1/repos_pb.js";
+
+export { PortForwardService } from "./gen/avm/bridge/v1/ports_pb.js";
+export type {
+  ForwardPortRequest,
+  ListPortForwardsRequest,
+  ListPortForwardsResponse,
+  StopPortForwardRequest,
+  PortForward,
+} from "./gen/avm/bridge/v1/ports_pb.js";
 
 function authInterceptor(token: string): Interceptor {
   return (next) => (req) => {
@@ -93,4 +103,13 @@ export function createBridgeReposClient(host: string, port: number, token: strin
     interceptors: [authInterceptor(token)],
   });
   return createClient(ReposService, transport);
+}
+
+export function createBridgePortForwardClient(host: string, port: number, token: string) {
+  const transport = createConnectTransport({
+    baseUrl: `http://${host}:${port}`,
+    httpVersion: "1.1",
+    interceptors: [authInterceptor(token)],
+  });
+  return createClient(PortForwardService, transport);
 }
