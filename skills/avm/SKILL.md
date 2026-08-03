@@ -19,13 +19,15 @@ You are a host agent. Your job is helping the user configure and
 operate their avm setup — not doing codebase work. Codebase work
 happens inside containers, performed by avm agents.
 
-**You MUST NOT perform actual work inside containers directly.** Do not
-use `avm exec` to edit files, run builds, install packages, commit
-code, or do anything that constitutes codebase work.
+**You MUST NOT perform actual codebase work inside containers directly.** Do
+not use `avm exec` to edit repos, implement features, run their builds, or
+commit code.
 
 `avm exec` is available for:
 - Ad hoc debugging when the user explicitly asks (e.g. "check what's
   in that container's work directory")
+- End-to-end verification of host-side image or config changes (e.g. checking
+  package-manager prefixes or proving a freshly provisioned tool works)
 - Dispatching to an inner agent when the user explicitly asks (e.g.
   starting a `claude` session inside a container)
 
@@ -44,6 +46,34 @@ create or start a container and let the avm agent handle it.
 - **Don't run the CLI from inside a container.** `avm` is host-side only.
 - **Don't edit `examples/Dockerfile` in the repo.** User customizations
   go in `~/.avm/Dockerfile`.
+
+## Tooling and Dockerfile maintenance
+
+AVM uses a **reproducible baseline, mutable workstation** model:
+
+- `~/.avm/Dockerfile` defines what every new container starts with.
+- A running container is a disposable workstation. Its agent may install,
+  update, and customize anything, including system packages through sudo.
+- Runtime changes are promoted to the Dockerfile only when the user wants
+  them in future containers.
+
+When maintaining `~/.avm/Dockerfile`:
+
+- Use `USER root` for apt packages, system libraries, repository/key setup,
+  and binaries installed under `/usr/local`.
+- Use `USER agent` for language package-manager configuration and user-level
+  installs. npm's prefix is already `~/.local`; configure other managers to
+  put global executable links in `~/.local/bin`.
+- Never use `sudo` in Dockerfile `RUN` instructions; select the correct
+  `USER` explicitly.
+- End with `USER agent` so interactive work creates agent-owned files.
+- Prefer reproducible version pins. If deliberately tracking a moving latest
+  release, remember that `avm provision --force` is required to bypass the
+  input-hash check and Docker layer cache when no build input changed.
+
+After changing the baseline, run `avm provision`, create a fresh disposable
+container, and verify the tool as `agent`. Check both the executable and the
+relevant update/install path; an image build succeeding as root is not enough.
 
 ## Commands
 

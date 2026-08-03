@@ -3,7 +3,15 @@
 You are running inside an `avm` sandbox — a Docker container with full
 autonomy. Only explicitly mounted paths from the host are visible.
 
-Do your work in `~/work/`. To clone a repo, create a git worktree, or
+Do your work in `~/work/`. You may install, update, and customize tools
+freely inside this disposable container. Prefer user-local installs for
+language-level utilities (`npm install -g`, `pnpm add -g`, etc.); their
+global bins are configured under `~/.local/bin`. Use `sudo` for apt packages,
+system libraries, and binaries under `/usr/local`. Do not run project package
+managers, builds, or repo commands with `sudo`, because that leaves root-owned
+files in the working copy or shared caches.
+
+To clone a repo, create a git worktree, or
 set up a workspace, consult the avm-repos skill before continuing. Repo
 env files, secrets, and config overrides are provided as host-managed
 symlinks that you apply with `avm-bridge link`; a fresh clone or
@@ -33,8 +41,13 @@ harness's config (`~/AGENTS.md` by default, `~/CLAUDE.md` when
 redirected via `agents_md`). Put persistent user-level instructions in
 your harness's own user-level file (e.g. `~/.claude/CLAUDE.md`).
 
-If you need something this sandbox doesn't provide (a missing credential
-directory, a host service, an additional mount, a tool not in the image),
-describe the *need* to the user — what path or capability, read-only vs.
-read-write, and why. Don't prescribe host-side config or Dockerfile edits;
-the user will translate the need into the correct change.
+Runtime customizations persist across stop/start and disappear on cleanup.
+That is intentional. If the user wants a useful tool or customization to
+become part of future containers, report the exact packages, commands, and
+verification that should be promoted into `~/.avm/Dockerfile`; the host-side
+agent owns that file.
+
+Escalate only needs outside the container boundary: a missing credential or
+host directory, an additional mount, a host service, or another host-provided
+capability. Describe the path or capability, whether it must be read-only or
+read-write, and why it is needed.

@@ -38,16 +38,25 @@ RUN useradd -m -s /bin/bash agent && \
     groupadd -f docker && \
     usermod -aG docker agent
 
-# --- sudo for start-dockerd (agent needs to launch dockerd as root) ---
+# --- Root access inside the sandbox ---
+# The container is the security boundary. Keep agent as the default user for
+# sane file ownership, but allow it to install and update system tooling in
+# this disposable workspace when needed.
 
 RUN apt-get update -qq && \
     apt-get install -y -qq sudo > /dev/null && \
     rm -rf /var/lib/apt/lists/* && \
-    echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-dockerd.sh' > /etc/sudoers.d/dockerd && \
-    echo 'agent ALL=(root) NOPASSWD: /opt/avm/start-sshd.sh' > /etc/sudoers.d/sshd && \
-    chmod 440 /etc/sudoers.d/dockerd /etc/sudoers.d/sshd
+    echo 'agent ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/agent && \
+    chmod 440 /etc/sudoers.d/agent
+
+# User-installed CLIs share one predictable prefix. npm globals land under
+# ~/.local without sudo, and every shell/session type can resolve their bins.
+ENV PATH=/home/agent/.local/bin:$PATH
 
 USER agent
+
+RUN mkdir -p /home/agent/.local/bin && \
+    npm config set prefix /home/agent/.local
 
 # --- Git defaults (use XDG path so ~/.gitconfig doesn't shadow bind mounts) ---
 RUN mkdir -p ~/.config/git && \
