@@ -27,6 +27,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 # --- pnpm via corepack ---
 
 RUN corepack enable pnpm
+USER agent
+RUN pnpm config set global-bin-dir /home/agent/.local/bin
+USER root
 
 # --- Python 3 ---
 

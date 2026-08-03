@@ -14,7 +14,9 @@ trash your filesystem, or do anything your user account can do.
 agent thinks it has free rein. It does — inside a sandbox. The container
 only sees explicitly mounted paths: credentials from `~/.avm/`, repo
 clones, caches, and Claude Code settings. Nothing else from the host is
-visible.
+visible. The agent runs as an ordinary user for sane file ownership and has
+passwordless sudo inside the container when it needs to install or update
+system tooling; the container, not its Unix user boundary, is the sandbox.
 
 ## Requirements
 
@@ -297,7 +299,26 @@ per the `agents_md` config) tells the agent how to use them.
 
 ## Customizing
 
-### Adding a toolchain package
+### Runtime customization and the reproducible baseline
+
+Running containers are disposable workstations. The agent may freely install
+and update tools while it works:
+
+```bash
+npm install -g <utility>       # user-owned under ~/.local
+pnpm add -g <utility>          # user-owned under ~/.local
+sudo apt-get update
+sudo apt-get install <package> # system package inside this container only
+```
+
+Do not use sudo for project package managers, builds, or repo commands; doing
+so creates root-owned files in working copies and shared caches.
+
+Runtime changes persist across stop/start and disappear when the container is
+cleaned. To make a useful tool or customization available in every future
+container, promote it into `~/.avm/Dockerfile`. Use `USER root` for apt,
+system libraries, and `/usr/local`; use `USER agent` for user-level package
+managers and finish the Dockerfile with `USER agent`.
 
 Edit `~/.avm/Dockerfile` and add the install command, then:
 
@@ -481,6 +502,9 @@ Dev Containers attached-container protocol (no host SSH config needed).
 - **Containers are flexible workspaces.** Use them semi-persistently
   for a thread of work, or ephemerally for a single task. Name them
   whatever fits the way you work. Cleanup is manual.
+- **Containers are mutable sandboxes.** `agent` is the default user but has
+  passwordless sudo. The image is a reproducible starting point, not a
+  restriction on what a running container may install or customize.
 - **No automated tests.** This is a CLI glue layer. Verification is
   manual: run the commands, check that things work.
 
@@ -501,6 +525,12 @@ Dev Containers attached-container protocol (no host SSH config needed).
   pnpm-store volume in `~/.avm/config.yaml`:
   `- pnpm-store:~/.local/share/pnpm/store`, and create
   `~/.avm/volumes/pnpm-store/`.
+- **`npm install -g` fails with `EACCES`** — recreate the container from a
+  current `avm-core` image. npm globals should resolve under `~/.local`, not
+  `/usr`. Check with `npm config get prefix`.
+- **A system CLI cannot update itself** — use its system package manager, for
+  example `sudo apt-get update && sudo apt-get install --only-upgrade gh`.
+  Use user-local npm/pnpm global installs without sudo.
 - **`git clone` inside the container is slow** — populate
   `~/.avm/mirrors/<repo>.git` with `git clone --mirror ...`, and have
   the agent use `git clone --reference ~/mirrors/<repo>.git ...`.

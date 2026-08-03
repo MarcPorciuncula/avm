@@ -94,6 +94,9 @@ export const createCommand = defineCommand({
       "--label", AVM_LABEL,
       "--label", `${SSH_PORT_LABEL}=${sshPort}`,
       "--network", "host",
+      // Host networking omits Docker's normal hostname entry. Add it
+      // explicitly so sudo can resolve the container hostname without noise.
+      "--add-host", `${vmName}:127.0.1.1`,
       "--privileged",
       "--init",
       "-v", `${vmName}-docker:/var/lib/docker`,

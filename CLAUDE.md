@@ -65,6 +65,11 @@ argument concatenation breaks anything non-trivial.
   for a single task and clean them up immediately. Don't impose a
   specific container lifetime model. Don't add auto-cleanup, TTLs, or
   "one container per branch" features — the user decides the lifecycle.
+- **The container is the security boundary.** The in-container `agent` user
+  remains the default for sane file ownership, but has passwordless sudo so
+  it can freely install, update, and customize its disposable workstation.
+  Prefer user-local language tooling and reserve sudo for system changes;
+  never run project package managers or builds with sudo.
 - **Defer decisions.** `avm start` doesn't require a repo or a branch.
   Those choices happen inside the container, via Claude, once the user
   is there.
