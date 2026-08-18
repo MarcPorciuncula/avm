@@ -15,6 +15,10 @@ export interface PruneImagesConfig {
   keep_recent: number;
 }
 
+export interface DockerConfig {
+  start_daemon: boolean;
+}
+
 export interface ServiceDefinition {
   kind: "process" | "docker";
   command?: string[];
@@ -42,6 +46,7 @@ export interface NotificationsConfig {
 export interface AvmConfig {
   editor?: EditorChoice;
   daemon: DaemonConfig;
+  docker: DockerConfig;
   prune_images: PruneImagesConfig;
   agents_md: string[];
   skills_dir: string[];
@@ -86,6 +91,7 @@ export function loadAvmConfig(): AvmConfig {
   if (!existsSync(avmConfigFile)) {
     return {
       daemon: { port: 6970 },
+      docker: defaultDockerConfig(),
       prune_images: defaultPruneImagesConfig(),
       agents_md: ["~/AGENTS.md"],
       skills_dir: [],
@@ -102,6 +108,10 @@ export function loadAvmConfig(): AvmConfig {
 
 function defaultPruneImagesConfig(): PruneImagesConfig {
   return { enabled: false, keep_recent: 1 };
+}
+
+function defaultDockerConfig(): DockerConfig {
+  return { start_daemon: false };
 }
 
 /**
@@ -167,6 +177,7 @@ const TOP_LEVEL_KEYS = new Set([
   "volumes",
   "repos",
   "daemon",
+  "docker",
   "prune_images",
   "services",
   "integrations",
@@ -193,6 +204,7 @@ function validate(data: unknown): AvmConfig {
 
   const editor = parseEditor(obj.editor);
   const daemon = parseDaemon(obj.daemon);
+  const docker = parseDocker(obj.docker);
   const prune_images = parsePruneImages(obj.prune_images);
   const agents_md = parseAgentsMd(obj.agents_md);
   const skills_dir = parseSkillsDir(obj.skills_dir);
@@ -204,6 +216,7 @@ function validate(data: unknown): AvmConfig {
   return {
     editor,
     daemon,
+    docker,
     prune_images,
     agents_md,
     skills_dir,
@@ -385,6 +398,7 @@ function splitShortForm(
 }
 
 const DAEMON_KEYS = new Set(["port"]);
+const DOCKER_KEYS = new Set(["start_daemon"]);
 const PRUNE_IMAGES_KEYS = new Set(["enabled", "keep_recent"]);
 const SERVICE_KEYS = new Set(["kind", "command", "container", "check"]);
 const CHECK_KEYS = new Set(["tcp"]);
@@ -438,6 +452,30 @@ function parseDaemon(raw: unknown): DaemonConfig {
     port = obj.port;
   }
   return { port };
+}
+
+function parseDocker(raw: unknown): DockerConfig {
+  if (raw === undefined) return defaultDockerConfig();
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `${avmConfigFile}: "docker" must be a mapping (got ${describe(raw)}).`,
+    );
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!DOCKER_KEYS.has(key)) {
+      console.warn(
+        `${avmConfigFile}: unknown key "${key}" under docker (ignored). Allowed: ${[...DOCKER_KEYS].join(", ")}.`,
+      );
+    }
+  }
+  const defaults = defaultDockerConfig();
+  if (obj.start_daemon !== undefined && typeof obj.start_daemon !== "boolean") {
+    throw new Error(
+      `${avmConfigFile}: docker.start_daemon must be a boolean (got ${describe(obj.start_daemon)}).`,
+    );
+  }
+  return { start_daemon: obj.start_daemon ?? defaults.start_daemon };
 }
 
 function parsePruneImages(raw: unknown): PruneImagesConfig {

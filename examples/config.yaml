@@ -48,6 +48,11 @@ integrations:
 daemon:
   port: 6970
 
+# Inner Docker (Docker-in-Docker). Enable this to wait for dockerd during
+# `avm create` and `avm start`; the default is lazy startup via start-dockerd.
+docker:
+  start_daemon: false
+
 # Image pruning — `avm provision` builds a new timestamped tag every run.
 prune_images:
   enabled: true

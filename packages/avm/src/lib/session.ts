@@ -242,6 +242,17 @@ export async function applyPostCreationSetup(
   }
 }
 
+/** Start the inner Docker daemon when the user has opted into eager startup. */
+export async function startDockerDaemonIfConfigured(
+  containerName: string,
+  config: AvmConfig,
+): Promise<void> {
+  if (!config.docker.start_daemon) return;
+
+  console.log(`==> Starting Docker daemon in ${containerName}...`);
+  await $`docker exec -u root ${containerName} /opt/avm/start-dockerd.sh`;
+}
+
 /**
  * Generate the host-side `~/.avm/AGENTS.md` that every container sees
  * mounted to each path declared in `config.agents_md`. Updates propagate
