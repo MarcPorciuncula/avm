@@ -20,9 +20,8 @@ system tooling; the container, not its Unix user boundary, is the sandbox.
 
 ## Requirements
 
-- macOS with [OrbStack](https://orbstack.dev/) installed (Docker
-  provider — OrbStack's Docker runtime supports true `--network host`
-  on macOS)
+- macOS with [OrbStack](https://orbstack.dev/) installed (Docker provider;
+  avm relies on OrbStack container domains and host/VPN connectivity)
 - Node 24+ (the CLI itself runs on the host)
 - pnpm (via corepack or standalone)
 - A GitHub SSH key and git identity
@@ -210,6 +209,8 @@ avm service list          # List declared services and their status
 avm service start <name>  # Start a host service
 avm service stop <name>   # Stop a host service
 avm service status <name> # Check a service's status
+avm port list             # List container ports forwarded to host localhost
+avm port stop <id> <port> # Stop a localhost forward
 ```
 
 IDs are the 5-char suffix after `avm-`. You can pass a prefix — if it
@@ -287,6 +288,40 @@ file.
 Mounts are established at container creation time and persist across
 `docker stop` / `docker start`. The container only sees explicitly
 mounted paths — no lockdown step is needed.
+
+### Networking
+
+Each avm container uses its own Docker bridge network namespace. OrbStack makes
+it directly reachable from the host at `<container-name>.orb.local`, so a dev
+server on port 3000 in `avm-code` is available at
+`avm-code.orb.local:3000`. Separate containers can listen on the same port
+without colliding.
+
+In the other direction, containers reach macOS processes and ports published
+by host-side Docker through `host.docker.internal`. avm exports that address as
+`AVM_HOST`; avm-bridge uses it to call the host daemon. Tailnet IPs, MagicDNS
+names, and Tailscale Service names are addressed directly — OrbStack follows
+the native macOS VPN and DNS configuration.
+
+For applications that must be opened as `localhost` — commonly OAuth login
+callbacks, strict CORS allowlists, and secure-cookie development setups — an
+in-container agent can ask avm to create a host-local TCP forward:
+
+```bash
+avm-bridge port forward 3000
+avm-bridge port forward 3000 --host-port 3001
+avm-bridge port list
+avm-bridge port stop 3000
+```
+
+The dev server must listen on `0.0.0.0`, not only the container's loopback.
+avm binds the forward only to `127.0.0.1` on the host and prints the exact URL
+to open. It prefers the same host port, but automatically allocates another
+when that port is already used by another container. Forwards survive container
+stop/start and daemon restarts, and are removed when the container is cleaned.
+Use `avm port list` on the host to see all forwards and `avm port stop <id>
+<port>` to stop one. This registry contains only explicitly requested forwards;
+avm does not scan or guess which ports are useful.
 
 ## Cloning Repos From Inside the Container
 
@@ -422,10 +457,11 @@ in `~/.avm/ssh_config` (those only apply to `avm ssh`, which uses the
 system `ssh` binary). So while the integration is enabled, `avm
 ssh-config` also reconciles a `# >>> avm managed (known_hosts) >>>`
 block in `~/.ssh/known_hosts` with the running containers' host keys.
-Entries for the avm port range (`[localhost]:22000`–`22999`) are
-avm-owned and refreshed on every sync — including recycled ports after
-`avm clean` + recreate; every other line in `~/.ssh/known_hosts` is
-preserved verbatim. `avm ssh-config uninstall` removes the block.
+Entries for avm's `*.orb.local` container names are refreshed on every sync —
+including recreated containers whose host keys changed. Legacy
+`[localhost]:22000`–`22999` entries are also cleaned up; every other line in
+`~/.ssh/known_hosts` is preserved verbatim. `avm ssh-config uninstall` removes
+the block.
 
 ### Claude notification hooks
 
@@ -539,6 +575,9 @@ Dev Containers attached-container protocol (no host SSH config needed).
   resume, or `avm clean <id>` to free it up.
 - **`avm start <id>` fails with "already running"** — the container is
   already up. Use `avm attach <id>` instead.
+- **A container cannot reach a service on macOS** — use
+  `$AVM_HOST:<port>` (`host.docker.internal`) rather than `localhost`.
+  `localhost` refers to the avm container itself.
 - **Claude desktop: "Connection failed: Host denied (verification
   failed)"** — the container's host key isn't trusted in
   `~/.ssh/known_hosts`. The desktop integration maintains this
@@ -546,4 +585,4 @@ Dev Containers attached-container protocol (no host SSH config needed).
   --desktop`), then run `avm ssh-config` to re-sync. The container must
   be running for its key to be scanned. If it persists after a
   container was recreated, re-sync again — the managed block refreshes
-  the recycled port's key.
+  the container domain's key.

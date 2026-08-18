@@ -1,0 +1,33 @@
+syntax = "proto3";
+package avm.bridge.v1;
+
+service PortForwardService {
+  rpc ForwardPort(ForwardPortRequest) returns (PortForward);
+  rpc ListPortForwards(ListPortForwardsRequest) returns (ListPortForwardsResponse);
+  rpc StopPortForward(StopPortForwardRequest) returns (StopPortForwardResponse);
+}
+
+message ForwardPortRequest {
+  int32 container_port = 1;
+  int32 host_port = 2;
+}
+
+message ListPortForwardsRequest {}
+
+message ListPortForwardsResponse {
+  repeated PortForward forwards = 1;
+}
+
+message StopPortForwardRequest {
+  int32 container_port = 1;
+}
+
+message StopPortForwardResponse {}
+
+message PortForward {
+  int32 container_port = 1;
+  int32 host_port = 2;
+  string url = 3;
+  bool active = 4;
+  string last_error = 5;
+}

@@ -5,6 +5,7 @@ import { serviceCommand } from "./commands/service.ts";
 import { claudeHookCommand } from "./commands/claude-hook.ts";
 import { linkCommand } from "./commands/link.ts";
 import { cloneCommand } from "./commands/clone.ts";
+import { portCommand } from "./commands/port.ts";
 
 const main = defineCommand({
   meta: {
@@ -18,6 +19,7 @@ const main = defineCommand({
     "claude-hook": claudeHookCommand,
     link: linkCommand,
     clone: cloneCommand,
+    port: portCommand,
   },
 });
 

@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { $ } from "zx";
 import { select, isCancel } from "@clack/prompts";
 import { loadAvmConfig } from "../../lib/config-file.ts";
-import { USER_IMAGE, AVM_LABEL, SSH_PORT_LABEL, getHostTimezone, sshPortForId } from "../../lib/config.ts";
+import { USER_IMAGE, AVM_LABEL, SSH_PORT, SSH_PORT_LABEL, getHostTimezone } from "../../lib/config.ts";
 import { openInEditor, resolveEditorCli } from "../../lib/editor.ts";
 import { installInclude, syncHostIntegrations } from "../../lib/ssh-config.ts";
 import { readState, updateState } from "../../lib/state.ts";
@@ -82,7 +82,7 @@ export const createCommand = defineCommand({
     const tz = getHostTimezone();
     const tzArgs = tz ? ["-e", `TZ=${tz}`] : [];
 
-    const sshPort = sshPortForId(shortIdOf(vmName));
+    const sshPort = SSH_PORT;
 
     console.log(`==> Registering container with daemon...`);
     const token = await registerContainer(vmName);
@@ -93,15 +93,13 @@ export const createCommand = defineCommand({
       "--hostname", vmName,
       "--label", AVM_LABEL,
       "--label", `${SSH_PORT_LABEL}=${sshPort}`,
-      "--network", "host",
-      // Host networking omits Docker's normal hostname entry. Add it
-      // explicitly so sudo can resolve the container hostname without noise.
-      "--add-host", `${vmName}:127.0.1.1`,
+      "--network", "bridge",
       "--privileged",
       "--init",
       "-v", `${vmName}-docker:/var/lib/docker`,
       "-e", `AVM_ID=${shortIdOf(vmName)}`,
       "-e", `AVM_SSH_PORT=${sshPort}`,
+      "-e", "AVM_HOST=host.docker.internal",
       "-e", `AVM_HOST_PORT=${config.daemon.port}`,
       "-e", `AVM_HOST_TOKEN=${token}`,
       "-e", `AVM_CONTAINER_NAME=${vmName}`,
@@ -112,7 +110,7 @@ export const createCommand = defineCommand({
     await applyPostCreationSetup(vmName);
 
     console.log(`==> Starting sshd in ${vmName}...`);
-    await ensureSshd(vmName, sshPort);
+    await ensureSshd(vmName, `${vmName}.orb.local`, sshPort);
 
     await syncHostIntegrations();
 
@@ -163,7 +161,7 @@ export const createCommand = defineCommand({
 
     if (args.ssh) {
       console.log(`==> Connecting via SSH...`);
-      process.exit(sshToVm(sshPort));
+      process.exit(sshToVm(`${vmName}.orb.local`, sshPort));
     }
 
     if (args.attach) {

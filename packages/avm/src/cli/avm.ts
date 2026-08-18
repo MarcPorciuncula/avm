@@ -13,6 +13,7 @@ import { notifyCommand } from "./commands/notify.ts";
 import { provisionCommand } from "./commands/provision.ts";
 import { daemonCommand } from "./commands/daemon.ts";
 import { serviceCommand } from "./commands/service.ts";
+import { portCommand } from "./commands/port.ts";
 
 const main = defineCommand({
   meta: {
@@ -36,6 +37,7 @@ const main = defineCommand({
     provision: provisionCommand,
     daemon: daemonCommand,
     service: serviceCommand,
+    port: portCommand,
   },
 });
 

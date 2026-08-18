@@ -2,6 +2,7 @@ import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { ContainerService } from "./gen/avm/host/v1/containers_pb.js";
 import { ServicesService } from "./gen/avm/host/v1/services_pb.js";
+import { PortForwardService } from "./gen/avm/host/v1/ports_pb.js";
 
 export { ContainerService } from "./gen/avm/host/v1/containers_pb.js";
 export type {
@@ -21,6 +22,14 @@ export type {
   Service,
 } from "./gen/avm/host/v1/services_pb.js";
 export { Kind, State } from "./gen/avm/host/v1/services_pb.js";
+
+export { PortForwardService } from "./gen/avm/host/v1/ports_pb.js";
+export type {
+  ListPortForwardsRequest,
+  ListPortForwardsResponse,
+  StopPortForwardRequest,
+  PortForward,
+} from "./gen/avm/host/v1/ports_pb.js";
 
 function authInterceptor(hostSecret: string): Interceptor {
   return (next) => (req) => {
@@ -43,4 +52,8 @@ export function createHostContainerClient(port: number, hostSecret: string) {
 
 export function createHostServicesClient(port: number, hostSecret: string) {
   return createClient(ServicesService, createHostTransport(port, hostSecret));
+}
+
+export function createHostPortForwardClient(port: number, hostSecret: string) {
+  return createClient(PortForwardService, createHostTransport(port, hostSecret));
 }

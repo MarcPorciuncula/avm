@@ -9,6 +9,7 @@ import { ensureHostSecret, extractBearerToken, verifyHostSecret, verifyContainer
 import { StateStore } from "./state.js";
 import { ServiceRegistry, type ServiceConfig } from "./registry.js";
 import { createRoutes } from "./server.js";
+import { PortForwardManager } from "./port-forwards.js";
 
 const AVM_HOME = join(homedir(), ".avm");
 const DAEMON_DIR = join(AVM_HOME, "daemon");
@@ -112,7 +113,10 @@ function loadPort(): number {
   }
 }
 
-function main() {
+async function main() {
+  // Reserve the daemon's own port before restoring any localhost forwards.
+  const port = loadPort();
+
   // 1. Set up daemon directory.
   mkdirSync(DAEMON_DIR, { recursive: true, mode: 0o700 });
 
@@ -124,12 +128,13 @@ function main() {
 
   // 4. Create service registry.
   const registry = new ServiceRegistry(stateStore);
+  const portForwards = new PortForwardManager(stateStore, [port]);
+  await portForwards.restore();
 
-  // 5. Read port from config.
-  const port = loadPort();
-
-  // 6. Create the Connect handler with auth middleware.
-  const connectHandler = connectNodeAdapter({ routes: createRoutes(registry, stateStore, loadConfig, loadRepos) });
+  // 5. Create the Connect handler with auth middleware.
+  const connectHandler = connectNodeAdapter({
+    routes: createRoutes(registry, portForwards, stateStore, loadConfig, loadRepos),
+  });
 
   const handler: typeof connectHandler = (req, res) => {
     const url = req.url ?? "";
@@ -156,13 +161,13 @@ function main() {
     return connectHandler(req, res);
   };
 
-  // 7. Start HTTP server.
+  // 6. Start HTTP server.
   const server = createServer(handler);
 
   server.listen(port, "127.0.0.1", () => {
     console.log(`avm-daemon listening on 127.0.0.1:${port}`);
 
-    // 8. Write PID file.
+    // 7. Write PID file.
     writeFileSync(PID_PATH, String(process.pid) + "\n", { mode: 0o600 });
 
     if (process.platform !== "darwin") {
@@ -172,14 +177,15 @@ function main() {
     }
   });
 
-  // 9. Handle graceful shutdown.
-  const shutdown = () => {
+  // 8. Handle graceful shutdown.
+  const shutdown = async () => {
     console.log("avm-daemon shutting down");
     try {
       unlinkSync(PID_PATH);
     } catch {
       // PID file may already be gone.
     }
+    await portForwards.closeAll();
     server.close(() => {
       console.log("avm-daemon stopped");
       process.exit(0);
@@ -192,4 +198,7 @@ function main() {
   process.on("SIGINT", shutdown);
 }
 
-main();
+main().catch((err) => {
+  console.error(`avm-daemon failed: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+});

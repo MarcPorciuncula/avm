@@ -23,7 +23,7 @@ export function renderManagedFile(vms: VmInfo[]): string {
     blocks.push(
       [
         `Host ${vm.name}`,
-        `  HostName localhost`,
+        `  HostName ${vm.sshHost}`,
         `  Port ${vm.sshPort}`,
         `  User agent`,
         `  StrictHostKeyChecking no`,

@@ -5,6 +5,7 @@ import { EditorService } from "./gen/avm/bridge/v1/editor_pb.js";
 import { BrowserService } from "./gen/avm/bridge/v1/browser_pb.js";
 import { NotificationService } from "./gen/avm/bridge/v1/notification_pb.js";
 import { ReposService } from "./gen/avm/bridge/v1/repos_pb.js";
+import { PortForwardService } from "./gen/avm/bridge/v1/ports_pb.js";
 
 export { ServicesService } from "./gen/avm/bridge/v1/services_pb.js";
 export type {
@@ -43,6 +44,15 @@ export type {
   SymlinkMount,
 } from "./gen/avm/bridge/v1/repos_pb.js";
 
+export { PortForwardService } from "./gen/avm/bridge/v1/ports_pb.js";
+export type {
+  ForwardPortRequest,
+  ListPortForwardsRequest,
+  ListPortForwardsResponse,
+  StopPortForwardRequest,
+  PortForward,
+} from "./gen/avm/bridge/v1/ports_pb.js";
+
 function authInterceptor(token: string): Interceptor {
   return (next) => (req) => {
     req.header.set("Authorization", `Bearer ${token}`);
@@ -50,47 +60,56 @@ function authInterceptor(token: string): Interceptor {
   };
 }
 
-export function createBridgeClient(port: number, token: string) {
+export function createBridgeClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(ServicesService, transport);
 }
 
-export function createBridgeEditorClient(port: number, token: string) {
+export function createBridgeEditorClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(EditorService, transport);
 }
 
-export function createBridgeBrowserClient(port: number, token: string) {
+export function createBridgeBrowserClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(BrowserService, transport);
 }
 
-export function createBridgeNotificationClient(port: number, token: string) {
+export function createBridgeNotificationClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(NotificationService, transport);
 }
 
-export function createBridgeReposClient(port: number, token: string) {
+export function createBridgeReposClient(host: string, port: number, token: string) {
   const transport = createConnectTransport({
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${host}:${port}`,
     httpVersion: "1.1",
     interceptors: [authInterceptor(token)],
   });
   return createClient(ReposService, transport);
+}
+
+export function createBridgePortForwardClient(host: string, port: number, token: string) {
+  const transport = createConnectTransport({
+    baseUrl: `http://${host}:${port}`,
+    httpVersion: "1.1",
+    interceptors: [authInterceptor(token)],
+  });
+  return createClient(PortForwardService, transport);
 }

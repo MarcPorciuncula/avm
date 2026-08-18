@@ -39,12 +39,29 @@ import {
   RepoSchema,
   SymlinkMountSchema,
 } from "@avm/shared/gen/avm/bridge/v1/repos_pb";
+import {
+  PortForwardService as BridgePortForwardService,
+  PortForwardSchema as BridgePortForwardSchema,
+  ListPortForwardsResponseSchema as BridgeListPortForwardsResponseSchema,
+  StopPortForwardResponseSchema as BridgeStopPortForwardResponseSchema,
+} from "@avm/shared/gen/avm/bridge/v1/ports_pb";
+import {
+  PortForwardService as HostPortForwardService,
+  PortForwardSchema as HostPortForwardSchema,
+  ListPortForwardsResponseSchema as HostListPortForwardsResponseSchema,
+  StopPortForwardResponseSchema as HostStopPortForwardResponseSchema,
+} from "@avm/shared/gen/avm/host/v1/ports_pb";
 
 import { openFile } from "./editor.js";
 import { openUrl } from "./browser.js";
 import { dispatchNotification, notificationsEnabled } from "./notifications.js";
 import type { ServiceRegistry, ServiceConfig, ServiceStatus } from "./registry.js";
 import type { StateStore } from "./state.js";
+import {
+  PortForwardError,
+  type PortForwardManager,
+  type PortForwardStatus,
+} from "./port-forwards.js";
 
 /** Map a registry kind string to the proto Kind enum. */
 function toBridgeKind(kind: ServiceConfig["kind"]): BridgeKind {
@@ -86,11 +103,46 @@ function getServiceConfig(
 
 export function createRoutes(
   registry: ServiceRegistry,
+  portForwards: PortForwardManager,
   stateStore: StateStore,
   loadConfig: () => Record<string, ServiceConfig>,
   loadRepos: () => Record<string, { symlinks: { source: string; target: string }[] }>,
 ): (router: ConnectRouter) => void {
   return (router: ConnectRouter) => {
+    // Localhost port forwarding API (called by containers)
+    router.service(BridgePortForwardService, {
+      async forwardPort(req, context) {
+        const containerName = requireContainerName(context.requestHeader);
+        try {
+          const forward = await portForwards.forward(
+            containerName,
+            req.containerPort,
+            req.hostPort,
+          );
+          return createBridgePortForward(forward);
+        } catch (err) {
+          throw toConnectError(err);
+        }
+      },
+
+      async listPortForwards(_req, context) {
+        const containerName = requireContainerName(context.requestHeader);
+        return create(BridgeListPortForwardsResponseSchema, {
+          forwards: portForwards.list(containerName).map(createBridgePortForward),
+        });
+      },
+
+      async stopPortForward(req, context) {
+        const containerName = requireContainerName(context.requestHeader);
+        try {
+          await portForwards.stop(containerName, req.containerPort);
+          return create(BridgeStopPortForwardResponseSchema, {});
+        } catch (err) {
+          throw toConnectError(err);
+        }
+      },
+    });
+
     // Bridge services API (called by containers)
     router.service(BridgeServicesService, {
       async listServices() {
@@ -263,6 +315,33 @@ export function createRoutes(
       },
     });
 
+    // Localhost port forwarding API (called by the host CLI)
+    router.service(HostPortForwardService, {
+      async listPortForwards() {
+        return create(HostListPortForwardsResponseSchema, {
+          forwards: portForwards.list().map((forward) =>
+            create(HostPortForwardSchema, {
+              containerName: forward.containerName,
+              containerPort: forward.containerPort,
+              hostPort: forward.hostPort,
+              url: localhostUrl(forward.hostPort),
+              active: forward.active,
+              lastError: forward.lastError,
+            }),
+          ),
+        });
+      },
+
+      async stopPortForward(req) {
+        try {
+          await portForwards.stop(req.containerName, req.containerPort);
+          return create(HostStopPortForwardResponseSchema, {});
+        } catch (err) {
+          throw toConnectError(err);
+        }
+      },
+    });
+
     // Bridge repos API (called by containers)
     router.service(ReposService, {
       async getRepo(req) {
@@ -286,9 +365,46 @@ export function createRoutes(
       },
 
       async unregisterContainer(req) {
+        await portForwards.removeContainer(req.name);
         stateStore.unregisterContainer(req.name);
         return create(UnregisterContainerResponseSchema, {});
       },
     });
   };
+}
+
+function requireContainerName(headers: Headers): string {
+  const containerName = headers.get("x-avm-container-name");
+  if (!containerName) {
+    throw new ConnectError("Container identity not resolved", Code.Internal);
+  }
+  return containerName;
+}
+
+function createBridgePortForward(forward: PortForwardStatus) {
+  return create(BridgePortForwardSchema, {
+    containerPort: forward.containerPort,
+    hostPort: forward.hostPort,
+    url: localhostUrl(forward.hostPort),
+    active: forward.active,
+    lastError: forward.lastError,
+  });
+}
+
+function localhostUrl(hostPort: number): string {
+  return `http://localhost:${hostPort}`;
+}
+
+function toConnectError(err: unknown): ConnectError {
+  if (err instanceof ConnectError) return err;
+  if (err instanceof PortForwardError) {
+    const code =
+      err.kind === "invalid"
+        ? Code.InvalidArgument
+        : err.kind === "not-found"
+          ? Code.NotFound
+          : Code.AlreadyExists;
+    return new ConnectError(err.message, code);
+  }
+  return new ConnectError(err instanceof Error ? err.message : String(err), Code.Internal);
 }

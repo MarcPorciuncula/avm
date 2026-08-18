@@ -87,7 +87,7 @@ export const startCommand = defineCommand({
 
     if (vm.sshPort) {
       console.log(`==> Starting sshd in ${vmName}...`);
-      await ensureSshd(vmName, vm.sshPort);
+      await ensureSshd(vmName, vm.sshHost, vm.sshPort);
     }
 
     const sshInstalled =
@@ -118,7 +118,7 @@ export const startCommand = defineCommand({
         process.exit(1);
       }
       console.log(`==> Connecting via SSH...`);
-      process.exit(sshToVm(vm.sshPort));
+      process.exit(sshToVm(vm.sshHost, vm.sshPort));
     }
 
     if (args.attach) {
