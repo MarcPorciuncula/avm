@@ -1,22 +1,23 @@
 # avm
 
-A harness for running sandboxed Claude Code agents in Docker containers
-with `--dangerously-skip-permissions`. Spin up a fresh, credential-loaded
+A harness for running sandboxed coding agents in Docker containers. Install
+Claude Code, Codex, or another agent harness in a fresh, credential-loaded
 workspace in seconds; tear it down when you're done.
 
 ## Why
 
-Running Claude Code with `--dangerously-skip-permissions` on your host
-machine is reckless — an unrestricted agent can read your credentials,
-trash your filesystem, or do anything your user account can do.
+Running an unrestricted coding agent on your host machine is reckless — it can
+read your credentials, trash your filesystem, or do anything your user account
+can do. That includes Claude Code with `--dangerously-skip-permissions` and
+similar modes in other harnesses.
 
 `avm` gives agents full autonomy inside isolated Docker containers. The
 agent thinks it has free rein. It does — inside a sandbox. The container
 only sees explicitly mounted paths: credentials from `~/.avm/`, repo
-clones, caches, and Claude Code settings. Nothing else from the host is
-visible. The agent runs as an ordinary user for sane file ownership and has
-passwordless sudo inside the container when it needs to install or update
-system tooling; the container, not its Unix user boundary, is the sandbox.
+clones, caches, and agent-harness state. Nothing else from the host is visible.
+The agent runs as an ordinary user for sane file ownership and has passwordless
+sudo inside the container when it needs to install or update system tooling;
+the container, not its Unix user boundary, is the sandbox.
 
 ## Requirements
 
@@ -43,34 +44,41 @@ After pulling new changes, run `pnpm install` again (or `pnpm run
 build`) to rebuild `dist/avm.mjs`. For iterative development, use `pnpm
 run dev <command>` to run the CLI via `tsx` without a rebuild.
 
-### (Optional) Install the Claude Code skill
+### (Optional) Install the avm skill
 
-This repo ships a skill at `skills/avm/` that teaches your host-side
-Claude Code when and how to invoke `avm`. Symlink it into your
-user-level skills directory:
+This repo ships a skill at `skills/avm/` that teaches a host-side agent how to
+configure and operate `avm`. Symlink it into the skills directory used by your
+host harness. For example:
 
 ```bash
+# Claude Code
 mkdir -p ~/.claude/skills
 ln -s "$(pwd)/skills/avm" ~/.claude/skills/avm
+
+# Codex
+mkdir -p ~/.codex/skills
+ln -s "$(pwd)/skills/avm" ~/.codex/skills/avm
 ```
 
-The symlink keeps the skill in sync with `git pull`.
+Use the directory that applies to your harness. The symlink keeps the skill in
+sync with `git pull`.
 
-## First-Time Setup (Claude Code defaults)
+## First-Time Setup
 
 `avm` keeps all user-owned state under `~/.avm/`. A fresh install starts
-with no `~/.avm/` at all — you create the pieces you need. The
-walkthrough below reproduces avm's Claude-flavored defaults: Claude Code
-in the image, credentials and Claude state mounted in, AGENTS.md
-presented as CLAUDE.md, host notifications and desktop dropdown wired
-up. To use a different agent harness, see
-["Using a different agent harness"](#using-a-different-agent-harness)
-below.
+with no `~/.avm/` at all — you create the pieces you need. Choose the agent
+harness you want to run, then tailor the image and configuration for it. The
+walkthrough below shows the Claude Code defaults; for Codex or another harness,
+see ["Configure another agent harness"](#configure-another-agent-harness).
 
-On a fresh machine you can walk through the steps manually, or let the
-host-side Claude skill guide you.
+### Claude Code defaults
 
-### 1. Seed credentials and Claude state
+These defaults install Claude Code, mount its state and credentials, present
+`AGENTS.md` as `CLAUDE.md`, and enable Claude desktop and notification
+integrations. On a fresh machine, you can walk through the steps manually or
+let a host-side agent guide you.
+
+#### 1. Seed credentials and Claude state
 
 ```bash
 mkdir -p ~/.avm/volumes/ssh ~/.avm/volumes/git ~/.avm/volumes/claude
@@ -85,7 +93,7 @@ These directories back the bind mounts declared in the Claude-defaults
 `~/.avm/volumes/claude.json`) fills itself the first time you run
 `claude` inside a container — leave them empty to start.
 
-### 2. Drop in the Claude defaults
+#### 2. Drop in the Claude defaults
 
 ```bash
 cp <avm-repo>/examples/Dockerfile  ~/.avm/Dockerfile
@@ -104,7 +112,7 @@ If your Dockerfile needs to `COPY` files, place them in
 `~/.avm/build-context/` — that directory is used as the Docker build
 context.
 
-### 3. Build the Docker images
+#### 3. Build the Docker images
 
 ```bash
 avm provision
@@ -115,7 +123,7 @@ This builds two images: `avm-core:latest` (from
 your `~/.avm/Dockerfile`). Docker layer caching makes subsequent
 rebuilds fast — only changed layers are rebuilt.
 
-### 4. Start your first session
+#### 4. Start your first session
 
 ```bash
 avm create --attach
@@ -125,7 +133,7 @@ This creates a new container from the `avm-user` image, mounts
 credentials and volumes, applies post-creation setup, and drops you into
 the container.
 
-### 5. (Optional) Populate mirrors and per-repo overlays
+#### 5. (Optional) Populate mirrors and per-repo overlays
 
 For faster clones of large repos, create bare mirrors:
 
@@ -157,10 +165,10 @@ mkdir -p ~/.avm/files/envs ~/.avm/files/configs/my-service
 The next `avm-bridge clone <repo>` (or `avm-bridge link` from inside a
 working copy) applies the symlinks.
 
-## Using a different agent harness
+## Configure another agent harness
 
-avm's core image installs no specific agent — that's a Dockerfile
-decision. To swap Claude for another harness:
+avm's core image installs no specific agent — the harness is a Dockerfile
+decision. To use Codex or another harness instead of Claude Code:
 
 - Strip or replace the "Claude Code" block in `~/.avm/Dockerfile` with
   your harness's install commands.
