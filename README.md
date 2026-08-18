@@ -245,7 +245,7 @@ which ship as part of the CLI.
 
 ```
 ~/.avm/
-├── config.yaml           # user-edited: agents_md, skills_dir, integrations, volumes, repos, services
+├── config.yaml           # user-edited: agents_md, skills_dir, Docker, integrations, volumes, repos, services
 ├── state.json            # avm CLI preferences (currently: SSH-config Include install prompt)
 ├── Dockerfile            # user-written: layers toolchain on avm-core (required for `avm provision`)
 ├── build-context/        # Docker build context for ~/.avm/Dockerfile (COPY sources go here)
@@ -284,6 +284,23 @@ declared in `config.yaml`. Per-repo symlinks are no longer baked into
 the container — they're applied on demand by `avm-bridge link` (the
 bridge fetches the current `config.yaml` from the daemon at call time,
 so edits take effect without `avm start`).
+
+### Inner Docker startup
+
+Docker-in-Docker is lazy by default: `dockerd` and its supporting processes
+are not started until the in-container agent runs `start-dockerd`. This avoids
+the startup wait and background resource use for containers that do not run
+Docker. To have `avm create` and `avm start` wait until the inner daemon is
+ready, opt in through `~/.avm/config.yaml`:
+
+```yaml
+docker:
+  start_daemon: true
+```
+
+The setting applies whenever a container is created or resumed. It does not
+retroactively start Docker in a container that is already running; run
+`start-dockerd` there if needed.
 
 `avm-bridge` is provided by bind-mounting the host's built `dist/`
 directory read-only at `/opt/avm/dist`, with `/usr/local/bin/avm-bridge`

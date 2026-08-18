@@ -11,6 +11,7 @@ import {
   ensureHostScaffolding,
   getDockerMountArgs,
   registerContainer,
+  startDockerDaemonIfConfigured,
 } from "../../lib/session.ts";
 import {
   attachToVm,
@@ -107,6 +108,7 @@ export const createCommand = defineCommand({
       ...mountArgs,
     ]} ${`${USER_IMAGE}:latest`} sleep infinity`;
 
+    await startDockerDaemonIfConfigured(vmName, config);
     await applyPostCreationSetup(vmName);
 
     console.log(`==> Starting sshd in ${vmName}...`);

@@ -5,8 +5,8 @@ description: Use when the agent needs to run Docker, docker-compose, build image
 
 # Docker in avm
 
-Docker runs locally inside this container (Docker-in-Docker). The
-daemon is **not** running by default — start it first:
+Docker runs locally inside this container (Docker-in-Docker). If the
+daemon is not already running, start it first:
 
 ```
 start-dockerd
@@ -20,7 +20,7 @@ The command is idempotent — safe to run if the daemon is already up.
   until it's ready.
 - The daemon stays running until the container stops.
 - After a container restart (`avm stop` / `avm start`), run
-  `start-dockerd` again.
+  `start-dockerd` again if the daemon is not already running.
 
 ## Bind mounts and docker-compose
 
