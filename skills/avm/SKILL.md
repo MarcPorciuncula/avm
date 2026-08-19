@@ -323,6 +323,8 @@ services:
       - --user-data-dir=/tmp/chrome-devtools-profile
     check:
       tcp: 127.0.0.1:9222
+    endpoint:
+      port: 9222
 
   postgres:
     kind: docker
@@ -338,6 +340,15 @@ Two kinds:
   host docker container. Requires `container` (container name).
 
 Both require a `check` with `tcp: host:port` for health checking.
+
+`check.tcp` is evaluated on the host; it is not a container-reachable address.
+Declare `endpoint.port` when agents need to connect to the service. From a
+container, `avm-bridge service endpoint <name>` prints the service's
+`host.docker.internal:<port>` endpoint, while `--ipv4` prints a numeric host
+address for clients that require one. Chrome DevTools MCP is the primary
+example: Chrome rejects the DNS Host header, so configure it to start the
+service and consume `avm-bridge service endpoint chrome --ipv4` rather than
+using `localhost` or `check.tcp`.
 
 ### Daemon lifecycle
 

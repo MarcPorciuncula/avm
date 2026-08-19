@@ -38,3 +38,29 @@ avm-bridge service start <name>    # idempotent — safe to call even if UP
 
 Run `avm-bridge service ls` to see which services the user has
 declared. The specific services depend on the user's configuration.
+
+## Connecting to host services
+
+`check.tcp` is a host-side health check, not a container endpoint. Services
+that declare `endpoint.port` can be reached with:
+
+```
+avm-bridge service endpoint <name>
+avm-bridge service endpoint <name> --ipv4
+```
+
+The default prints `host.docker.internal:<port>`. Use `--ipv4` for clients
+that require a numeric HTTP Host header.
+
+### Chrome DevTools MCP
+
+Chrome is the primary use case for `--ipv4`: Chrome rejects the
+`host.docker.internal` HTTP Host header. For a declared `chrome` service,
+configure Chrome DevTools MCP to start the service and use its numeric endpoint:
+
+```
+sh -c 'avm-bridge service start chrome >&2 && endpoint=$(avm-bridge service endpoint chrome --ipv4) && exec npx -y chrome-devtools-mcp@latest --browser-url=http://$endpoint'
+```
+
+Do not start an in-container browser or configure Chrome DevTools MCP with
+`localhost` or the service health-check address.

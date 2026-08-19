@@ -278,7 +278,15 @@ export function generateAgentsMd(config: AvmConfig): void {
     parts.push("Consult the avm-services skill for usage.");
     parts.push("");
     for (const [name, svc] of serviceEntries) {
-      parts.push(`- **${name}** — \`${svc.check.tcp}\``);
+      const endpoint = svc.endpoint
+        ? ` Its container endpoint is available through \`avm-bridge service endpoint ${name}\` ` +
+          `(or \`--ipv4\` for clients that require a numeric host).`
+        : "";
+      parts.push(
+        `- **${name}** — host service (health check: \`${svc.check.tcp}\`). ` +
+          "Manage it with `avm-bridge service`; the health-check address is not a container endpoint." +
+          endpoint,
+      );
     }
   }
 

@@ -157,6 +157,7 @@ export function createRoutes(
               pid: status.pid,
               lastError: status.lastError,
               lastCheckAt: timestampFromDate(status.lastCheckAt),
+              endpointPort: config.endpoint?.port ?? 0,
             });
           }),
         );
@@ -173,6 +174,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
 
@@ -186,6 +188,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
 
@@ -199,6 +202,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
     });
@@ -269,6 +273,7 @@ export function createRoutes(
               pid: status.pid,
               lastError: status.lastError,
               lastCheckAt: timestampFromDate(status.lastCheckAt),
+              endpointPort: config.endpoint?.port ?? 0,
             });
           }),
         );
@@ -285,6 +290,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
 
@@ -298,6 +304,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
 
@@ -311,6 +318,7 @@ export function createRoutes(
           pid: status.pid,
           lastError: status.lastError,
           lastCheckAt: timestampFromDate(status.lastCheckAt),
+          endpointPort: config.endpoint?.port ?? 0,
         });
       },
     });

@@ -24,10 +24,15 @@ export interface ServiceDefinition {
   command?: string[];
   container?: string;
   check: ServiceCheck;
+  endpoint?: ServiceEndpoint;
 }
 
 export interface ServiceCheck {
   tcp: string;
+}
+
+export interface ServiceEndpoint {
+  port: number;
 }
 
 export interface NotificationSound {
@@ -400,8 +405,9 @@ function splitShortForm(
 const DAEMON_KEYS = new Set(["port"]);
 const DOCKER_KEYS = new Set(["start_daemon"]);
 const PRUNE_IMAGES_KEYS = new Set(["enabled", "keep_recent"]);
-const SERVICE_KEYS = new Set(["kind", "command", "container", "check"]);
+const SERVICE_KEYS = new Set(["kind", "command", "container", "check", "endpoint"]);
 const CHECK_KEYS = new Set(["tcp"]);
+const ENDPOINT_KEYS = new Set(["port"]);
 const VALID_SERVICE_KINDS = new Set(["process", "docker"]);
 
 const NOTIFICATIONS_KEYS = new Set(["enabled", "sounds"]);
@@ -632,7 +638,39 @@ function parseServices(
       );
     }
 
-    out[name] = { kind, command, container, check: { tcp: checkObj.tcp } };
+    let endpoint: ServiceEndpoint | undefined;
+    if (svcObj.endpoint !== undefined) {
+      if (
+        svcObj.endpoint === null ||
+        typeof svcObj.endpoint !== "object" ||
+        Array.isArray(svcObj.endpoint)
+      ) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.endpoint must be a mapping (got ${describe(svcObj.endpoint)}).`,
+        );
+      }
+      const endpointObj = svcObj.endpoint as Record<string, unknown>;
+      for (const key of Object.keys(endpointObj)) {
+        if (!ENDPOINT_KEYS.has(key)) {
+          console.warn(
+            `${avmConfigFile}: unknown key "${key}" under services.${name}.endpoint (ignored). Allowed: ${[...ENDPOINT_KEYS].join(", ")}.`,
+          );
+        }
+      }
+      if (
+        typeof endpointObj.port !== "number" ||
+        !Number.isInteger(endpointObj.port) ||
+        endpointObj.port < 1 ||
+        endpointObj.port > 65535
+      ) {
+        throw new Error(
+          `${avmConfigFile}: services.${name}.endpoint.port must be an integer between 1 and 65535 (got ${describe(endpointObj.port)}).`,
+        );
+      }
+      endpoint = { port: endpointObj.port };
+    }
+
+    out[name] = { kind, command, container, check: { tcp: checkObj.tcp }, endpoint };
   }
   return out;
 }

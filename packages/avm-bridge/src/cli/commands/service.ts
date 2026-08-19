@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { defineCommand } from "citty";
 import {
   createBridgeClient,
@@ -138,6 +139,42 @@ const stopCommand = defineCommand({
   },
 });
 
+const endpointCommand = defineCommand({
+  meta: {
+    name: "endpoint",
+    description: "Print a host service endpoint reachable from this container.",
+  },
+  args: {
+    name: {
+      type: "positional",
+      description: "Service name",
+      required: true,
+    },
+    ipv4: {
+      type: "boolean",
+      default: false,
+      description: "Resolve the AVM host to an IPv4 address instead of using its DNS name.",
+    },
+  },
+  async run({ args }) {
+    try {
+      const service = await getClient().getService({ name: args.name });
+      if (!service.endpointPort) {
+        throw new Error(`service ${args.name} does not declare a container endpoint`);
+      }
+
+      let host = process.env.AVM_HOST ?? "host.docker.internal";
+      if (args.ipv4) {
+        host = (await lookup(host, { family: 4 })).address;
+      }
+      console.log(`${host}:${service.endpointPort}`);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    }
+  },
+});
+
 export const serviceCommand = defineCommand({
   meta: {
     name: "service",
@@ -148,5 +185,6 @@ export const serviceCommand = defineCommand({
     status: statusCommand,
     start: startCommand,
     stop: stopCommand,
+    endpoint: endpointCommand,
   },
 });
