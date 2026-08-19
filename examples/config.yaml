@@ -74,6 +74,9 @@ prune_images:
 #       - --user-data-dir=/tmp/chrome-devtools-profile
 #     check:
 #       tcp: 127.0.0.1:9222
+#     # A container-reachable endpoint, distinct from the host-only health check.
+#     endpoint:
+#       port: 9222
 
 # Optionally tune host-notification sounds (macOS only):
 # notifications:

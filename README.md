@@ -348,6 +348,35 @@ Use `avm port list` on the host to see all forwards and `avm port stop <id>
 <port>` to stop one. This registry contains only explicitly requested forwards;
 avm does not scan or guess which ports are useful.
 
+### Host-service endpoints
+
+`services.<name>.check.tcp` is a host-only health check. It does not describe
+an address that an avm container can use. Services can instead declare an
+`endpoint.port`, which an in-container agent resolves with:
+
+```bash
+avm-bridge service endpoint <name>
+avm-bridge service endpoint <name> --ipv4
+```
+
+The first command prints `host.docker.internal:<port>`. `--ipv4` resolves that
+host name to a numeric address for clients that require one.
+
+#### Chrome DevTools MCP example
+
+Chrome is the primary use case for the numeric form because its debugging
+server rejects the `host.docker.internal` HTTP Host header. Given a `chrome`
+service with `endpoint.port: 9222`, configure Chrome DevTools MCP as:
+
+```toml
+[mcp_servers.chrome_devtools]
+command = "sh"
+args = ["-c", "avm-bridge service start chrome >&2 && endpoint=$(avm-bridge service endpoint chrome --ipv4) && exec npx -y chrome-devtools-mcp@latest --browser-url=http://$endpoint"]
+```
+
+This keeps Chrome and its MCP package in user configuration; avm only provides
+generic service lifecycle and endpoint discovery.
+
 ## Cloning Repos From Inside the Container
 
 `avm create` and `avm start` deliberately don't clone repos. That's the

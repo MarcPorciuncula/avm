@@ -8,6 +8,7 @@ export interface ServiceConfig {
   command?: string[];
   container?: string;
   check: { tcp: string };
+  endpoint?: { port: number };
 }
 
 export interface ServiceStatus {

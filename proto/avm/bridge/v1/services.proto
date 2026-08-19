@@ -25,6 +25,7 @@ message Service {
   int32 pid = 4;
   string last_error = 5;
   google.protobuf.Timestamp last_check_at = 6;
+  uint32 endpoint_port = 7;
 }
 
 enum Kind {

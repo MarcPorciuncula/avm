@@ -40,11 +40,21 @@ function loadConfig(): Record<string, ServiceConfig> {
       const check = svc.check as Record<string, unknown> | undefined;
       if (!check || typeof check.tcp !== "string") continue;
 
+      const rawEndpoint = svc.endpoint as Record<string, unknown> | undefined;
+      const endpointPort = rawEndpoint?.port;
+
       result[name] = {
         kind,
         command: Array.isArray(svc.command) ? svc.command.map(String) : undefined,
         container: typeof svc.container === "string" ? svc.container : undefined,
         check: { tcp: check.tcp },
+        endpoint:
+          typeof endpointPort === "number" &&
+          Number.isInteger(endpointPort) &&
+          endpointPort >= 1 &&
+          endpointPort <= 65535
+            ? { port: endpointPort }
+            : undefined,
       };
     }
     return result;
