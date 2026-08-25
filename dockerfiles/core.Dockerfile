@@ -50,7 +50,8 @@ RUN apt-get update -qq && \
     chmod 440 /etc/sudoers.d/agent
 
 # User-installed CLIs share one predictable prefix. npm globals land under
-# ~/.local without sudo, and every shell/session type can resolve their bins.
+# ~/.local without sudo. The avm CLI copies the image-composed PATH into
+# /etc/environment so SSH sessions can resolve these bins too.
 ENV PATH=/home/agent/.local/bin:$PATH
 
 USER agent
