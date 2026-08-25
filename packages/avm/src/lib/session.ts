@@ -209,25 +209,30 @@ function printMigrationHintIfNeeded(allMoves: LegacyMove[]): void {
 
 /**
  * Post-creation setup run after `docker run` or `docker start`.
- * Persists AVM_* env vars for SSH and symlinks image-shipped skills into
- * each configured skills_dir. (avm-bridge needs no setup here — it's a
- * Dockerfile symlink into the read-only dist/ mount, already executable
- * from the build.)
+ * Persists the container PATH and AVM_* env vars for SSH, then symlinks
+ * image-shipped skills into each configured skills_dir. (avm-bridge needs no
+ * setup here — it's a Dockerfile symlink into the read-only dist/ mount,
+ * already executable from the build.)
  */
 export async function applyPostCreationSetup(
   containerName: string,
 ): Promise<void> {
-  // --- Persist AVM_* env vars for SSH sessions ---
+  // --- Persist the container PATH and AVM_* env vars for SSH sessions ---
   // Docker container env vars (set via `docker run -e`) are only inherited by
   // `docker exec` sessions. SSH sessions start fresh shells that don't see
-  // them. Append them to /etc/environment (read by pam_env for all session
-  // types) so every SSH session — interactive, non-interactive, login or
-  // not — picks them up.
-  await $`docker exec -u root ${containerName} bash -c ${
-    // Remove any existing AVM_ lines first (idempotent on restart), then append current values.
-    'sed -i "/^AVM_/d" /etc/environment && ' +
-    'env | grep "^AVM_" >> /etc/environment'
-  }`;
+  // them. Persist the image-composed PATH as well as AVM's runtime variables
+  // in /etc/environment (read by pam_env for all session types) so every SSH
+  // session — interactive, non-interactive, login or not — picks them up.
+  // Reading PATH from the running container keeps user Dockerfiles
+  // authoritative instead of hardcoding tool-specific directories in avm.
+  const sshEnvironmentSetup = `
+set -e
+container_path="$(printenv PATH)"
+sed -i -e '/^PATH=/d' -e '/^AVM_/d' /etc/environment
+printf 'PATH="%s"\n' "$container_path" >> /etc/environment
+env | grep '^AVM_' >> /etc/environment
+`;
+  await $({ input: sshEnvironmentSetup })`docker exec -i -u root ${containerName} bash`;
 
   // --- Symlink image-shipped skills into configured skills_dir(s) ---
   const config = loadAvmConfig();

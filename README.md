@@ -277,13 +277,16 @@ difference is what happens first:
 - **`avm start`** runs `docker start` (the container already exists with
   its mounts baked in from creation).
 
-Both then run `applyPostCreationSetup`, which persists `AVM_*` env vars
-into `/etc/environment` (so SSH sessions inherit them) and symlinks
-image-shipped skills (`/opt/avm/skills/*`) into each `skills_dir`
-declared in `config.yaml`. Per-repo symlinks are no longer baked into
-the container — they're applied on demand by `avm-bridge link` (the
-bridge fetches the current `config.yaml` from the daemon at call time,
-so edits take effect without `avm start`).
+Both then run `applyPostCreationSetup`, which persists the container's
+image-composed `PATH` and its `AVM_*` env vars into `/etc/environment` (so SSH
+sessions inherit them) and symlinks image-shipped skills
+(`/opt/avm/skills/*`) into each `skills_dir` declared in `config.yaml`. This
+keeps user-local toolchain paths declared by a custom Dockerfile available to
+interactive shells, non-interactive commands, and agent harness servers
+started over SSH. Per-repo symlinks are no longer baked into the container —
+they're applied on demand by `avm-bridge link` (the bridge fetches the current
+`config.yaml` from the daemon at call time, so edits take effect without
+`avm start`).
 
 ### Inner Docker startup
 
