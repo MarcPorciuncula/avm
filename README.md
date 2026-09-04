@@ -305,6 +305,12 @@ The setting applies whenever a container is created or resumed. It does not
 retroactively start Docker in a container that is already running; run
 `start-dockerd` there if needed.
 
+The helper recovers stale Docker PID files after container restarts, serializes
+concurrent startup attempts, and waits for the local Docker API to be ready.
+Startup failures include the daemon's recent log output. Helper changes are
+baked into images by `avm provision`; existing containers retain their installed
+copy until it is explicitly updated or the container is recreated.
+
 `avm-bridge` is provided by bind-mounting the host's built `dist/`
 directory read-only at `/opt/avm/dist`, with `/usr/local/bin/avm-bridge`
 a Dockerfile symlink into it. The directory is mounted (rather than the
@@ -598,8 +604,13 @@ Dev Containers attached-container protocol (no host SSH config needed).
 - **Containers are mutable sandboxes.** `agent` is the default user but has
   passwordless sudo. The image is a reproducible starting point, not a
   restriction on what a running container may install or customize.
-- **No automated tests.** This is a CLI glue layer. Verification is
-  manual: run the commands, check that things work.
+- **Focused regression tests.** Run `pnpm test` on Linux for Docker startup
+  helper tests (requires Bash, `flock`, and GNU `timeout`). On macOS, use the
+  provisioned core image: `docker run --rm --user root -v "$PWD:/workspace:ro"
+  -w /workspace avm-core:latest node --test tests/start-dockerd.test.mjs`.
+  Tests use mocked Docker commands and isolated temporary runtime files;
+  they do not start Docker or modify existing containers. Other CLI workflows
+  are verified manually.
 
 ## Troubleshooting
 
