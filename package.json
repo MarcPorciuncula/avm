@@ -8,6 +8,7 @@
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "tsdown",
+    "test": "node --test tests/*.test.mjs",
     "dev": "tsdown --watch",
     "prepare": "tsdown",
     "buf:generate": "buf dep update && buf generate"
